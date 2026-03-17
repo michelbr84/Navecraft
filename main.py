@@ -17,6 +17,7 @@ class Navecraft:
         pygame.mixer.init()
         
         # Configuração da tela
+        self.fullscreen = False
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
@@ -44,7 +45,9 @@ class Navecraft:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_F1:
+                if event.key == pygame.K_F11:
+                    self.toggle_fullscreen()
+                elif event.key == pygame.K_F1:
                     global DEBUG_MODE
                     DEBUG_MODE = not DEBUG_MODE
             
@@ -53,6 +56,8 @@ class Navecraft:
                 result = self.main_menu.handle_input(event)
                 if result == "play":
                     self.game_state = "playing"
+                elif result == "fullscreen":
+                    self.toggle_fullscreen()
                 elif result == "quit":
                     self.running = False
             elif self.game_state == "playing":
@@ -64,6 +69,13 @@ class Navecraft:
                 result = self.pause_menu.handle_input(event)
                 if result == "continue":
                     self.game_state = "playing"
+                elif result == "main_menu":
+                    self.pause_menu.current_menu = "pause"
+                    self.pause_menu.selected_option = 0
+                    self.game_state = "menu"
+                    self.game = Game()
+                elif result == "fullscreen":
+                    self.toggle_fullscreen()
                 elif result == "quit":
                     self.running = False
             elif self.game_state == "game_over":
@@ -76,6 +88,14 @@ class Navecraft:
                 elif result == "quit":
                     self.running = False
     
+    def toggle_fullscreen(self):
+        """Alterna entre tela cheia e modo janela"""
+        self.fullscreen = not self.fullscreen
+        if self.fullscreen:
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+
     def update(self):
         """Atualiza lógica do jogo"""
         if self.game_state == "playing":

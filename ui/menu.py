@@ -13,6 +13,7 @@ class Menu:
         self.font_small = pygame.font.Font(None, 24)
         
         self.current_menu = "main"
+        self.parent_menu = "main"  # Menu para retornar de settings
         self.selected_option = 0
         self.menu_options = {
             "main": ["Jogar", "Configurações", "Sobre", "Sair"],
@@ -33,8 +34,10 @@ class Menu:
                 if self.current_menu == "pause":
                     return "continue"
                 elif self.current_menu == "settings":
-                    self.current_menu = "main"
+                    self.current_menu = self.parent_menu
                     self.selected_option = 0
+                    if self.parent_menu == "pause":
+                        return None  # Stay in pause state
         
         return None
     
@@ -44,34 +47,35 @@ class Menu:
             if self.selected_option == 0:  # Jogar
                 return "play"
             elif self.selected_option == 1:  # Configurações
+                self.parent_menu = "main"
                 self.current_menu = "settings"
                 self.selected_option = 0
             elif self.selected_option == 2:  # Sobre
                 return "about"
             elif self.selected_option == 3:  # Sair
                 return "quit"
-        
+
         elif self.current_menu == "pause":
             if self.selected_option == 0:  # Continuar
                 return "continue"
             elif self.selected_option == 1:  # Configurações
+                self.parent_menu = "pause"
                 self.current_menu = "settings"
                 self.selected_option = 0
             elif self.selected_option == 2:  # Menu Principal
-                self.current_menu = "main"
-                self.selected_option = 0
+                return "main_menu"
             elif self.selected_option == 3:  # Sair
                 return "quit"
-        
+
         elif self.current_menu == "settings":
             if self.selected_option == 0:  # Volume
                 return "volume"
             elif self.selected_option == 1:  # Tela Cheia
                 return "fullscreen"
             elif self.selected_option == 2:  # Voltar
-                self.current_menu = "main"
+                self.current_menu = self.parent_menu
                 self.selected_option = 0
-        
+
         return None
     
     def render(self, surface):

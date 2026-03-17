@@ -9,7 +9,7 @@ from settings import *
 from core.input import InputManager
 from core.renderer import Renderer
 from core.audio import AudioSystem
-from entities.spaceship import Spaceship
+from entities.spaceship import Spaceship, Projectile
 from entities.enemy import Enemy
 from systems.physics import PhysicsSystem
 from systems.generation import WorldGenerator
@@ -115,9 +115,10 @@ class Game:
         self.debug_system.update_fps()
         self.debug_system.update_frame_time(frame_time)
         
-        # Atualiza input
-        self.input_manager.update()
-        
+        # Atualiza input (posição do mouse, botões do mouse)
+        # Nota: NÃO limpa keys_just_pressed aqui - isso é feito no fim do frame
+        self.input_manager.update_mouse()
+
         # Atualiza nave
         if self.spaceship:
             self.spaceship.update(self.input_manager)
@@ -134,6 +135,18 @@ class Game:
                 angle = math.atan2(dy, dx)
                 self.particle_system.create_thrust_effect(self.spaceship.x, self.spaceship.y, angle)
             
+            # Verifica tiro
+            if self.input_manager.is_control_just_pressed('SHOOT'):
+                if self.spaceship.shoot():
+                    proj = Projectile(
+                        self.spaceship.x + math.cos(self.spaceship.angle) * self.spaceship.size,
+                        self.spaceship.y + math.sin(self.spaceship.angle) * self.spaceship.size,
+                        self.spaceship.angle
+                    )
+                    self.projectiles.append(proj)
+                    self.audio_system.play_sound('shoot')
+                    game_logger.log_game_event("shooting", f"angle={self.spaceship.angle:.2f}")
+
             # Verifica mineração
             if self.input_manager.is_control_just_pressed('MINE'):
                 mined_value = self.spaceship.mine(self.blocks)
@@ -325,11 +338,25 @@ class Game:
         # Atualiza física
         self.physics_system.update(self.spaceship, self.planets, self.blocks)
         
-        # Atualiza projéteis
+        # Atualiza projéteis e verifica colisões com inimigos
         for projectile in self.projectiles[:]:
             projectile.update()
             if not projectile.is_alive():
                 self.projectiles.remove(projectile)
+                continue
+            # Verifica colisão com inimigos
+            for enemy in self.enemies[:]:
+                dist = math.sqrt((projectile.x - enemy.x)**2 + (projectile.y - enemy.y)**2)
+                if dist < enemy.size + projectile.size:
+                    enemy.take_damage(projectile.damage)
+                    self.particle_system.create_collect_effect(enemy.x, enemy.y, (255, 100, 0))
+                    if projectile in self.projectiles:
+                        self.projectiles.remove(projectile)
+                    if not enemy.is_alive():
+                        self.enemies.remove(enemy)
+                        self.particle_system.create_collect_effect(enemy.x, enemy.y, (255, 50, 0))
+                        game_logger.log_game_event("enemy_killed", f"type={enemy.enemy_type}")
+                    break
         
         # Atualiza partículas (otimização: só partículas próximas)
         if self.spaceship:
@@ -375,10 +402,13 @@ class Game:
             self.debug_system.set_debug_info('inventory_info', inventory_info)
         
         # Verifica game over
-        if self.spaceship and not self.spaceship.is_alive(): # Added game over check
+        if self.spaceship and not self.spaceship.is_alive():
             self.game_state = "game_over"
             self.debug_system.log_info("Game Over - Nave destruída", "WARNING")
             game_logger.log_game_event("game_over", "spaceship_destroyed")
+
+        # Limpa keys_just_pressed/released no fim do frame
+        self.input_manager.clear_frame()
 
     def render(self, surface):
         """Renderiza o jogo"""

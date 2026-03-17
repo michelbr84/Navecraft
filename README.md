@@ -55,14 +55,35 @@ python main.py
 - **Mouse**: Mira para mineração e construção
 
 ### Ações
-- **E**: Mineração
-- **Q**: Construção
+- **Espaço**: Disparar laser
+- **E**: Mineração (aproxime-se dos blocos)
+- **Q**: Construção (posição do mouse)
 - **I**: Inventário
 - **1-5**: Selecionar tipo de bloco (Ferro, Ouro, Cristal, Combustível, Oxigênio)
 
+### Crafting
+- **R**: Craft Kit de Reparo
+- **T**: Craft Pacote de Energia
+- **Y**: Craft Tanque de Oxigênio
+- **U**: Craft Reforço de Escudo
+
+### Upgrades
+- **F1**: Upgrade Motor
+- **F2**: Upgrade Escudo
+- **F3**: Upgrade Energia
+- **F4**: Upgrade Mineração
+- **F5**: Upgrade Oxigênio
+- **F6**: Upgrade Combustível
+
+### Missões e Multiplayer
+- **M**: Aceitar nova missão
+- **F7**: Alternar multiplayer local
+- **F8**: Adicionar jogador
+
 ### Interface
 - **ESC**: Menu de pausa
-- **F1**: Ativar/desativar modo debug
+- **F11**: Alternar tela cheia
+- **F1**: Ativar/desativar modo debug (quando não em jogo)
 
 ## Estrutura do Projeto
 
@@ -83,14 +104,20 @@ navecraft/
 ├── systems/               # Sistemas especializados
 │   ├── physics.py        # Física espacial
 │   ├── generation.py     # Geração procedural
-│   ├── inventory.py      # Sistema de inventário
-│   └── particles.py      # Sistema de partículas
+│   ├── inventory.py      # Sistema de inventário e crafting
+│   ├── particles.py      # Sistema de partículas
+│   ├── missions.py       # Sistema de missões
+│   ├── upgrades.py       # Sistema de upgrades
+│   └── multiplayer.py    # Multiplayer local
 ├── ui/                    # Interface do usuário
 │   ├── hud.py            # Heads-Up Display
 │   └── menu.py           # Menus do jogo
+├── tests/                 # Testes automatizados
+│   └── test_fixes.py    # Testes de input, menus, mineração e projéteis
 └── utils/                 # Utilitários
     ├── colors.py         # Paletas de cores
-    └── debug.py          # Sistema de debug
+    ├── debug.py          # Sistema de debug
+    └── logger.py         # Sistema de logging
 ```
 
 ## Mecânicas Detalhadas
@@ -208,4 +235,3 @@ Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes
 ---
 
 **Navecraft** - Explore, mine, construa e sobreviva no espaço infinito!
-# Navecraft

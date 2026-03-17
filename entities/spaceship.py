@@ -6,6 +6,35 @@ import pygame
 import math
 from settings import *
 
+
+class Projectile:
+    """Projétil laser disparado pela nave"""
+    def __init__(self, x, y, angle):
+        self.x = x
+        self.y = y
+        self.vx = math.cos(angle) * LASER_SPEED
+        self.vy = math.sin(angle) * LASER_SPEED
+        self.size = 4
+        self.damage = LASER_DAMAGE
+        self.lifetime = 120  # frames
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.lifetime -= 1
+
+    def is_alive(self):
+        return self.lifetime > 0
+
+    def render(self, surface, camera_x, camera_y):
+        screen_x = int(self.x - camera_x)
+        screen_y = int(self.y - camera_y)
+        pygame.draw.circle(surface, CYAN, (screen_x, screen_y), self.size)
+        # Trail effect
+        trail_x = int(self.x - self.vx * 0.3 - camera_x)
+        trail_y = int(self.y - self.vy * 0.3 - camera_y)
+        pygame.draw.line(surface, (0, 200, 255), (trail_x, trail_y), (screen_x, screen_y), 2)
+
 class Spaceship:
     def __init__(self, x, y):
         """Inicializa a nave espacial"""

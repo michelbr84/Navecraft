@@ -17,17 +17,14 @@ class InputManager:
         self.mouse_buttons_just_released = [False, False, False]
         
     def update(self):
-        """Atualiza estado das teclas e mouse"""
-        # Limpa teclas just pressed/released
-        self.keys_just_pressed.clear()
-        self.keys_just_released.clear()
-        self.mouse_buttons_just_pressed = [False, False, False]
-        self.mouse_buttons_just_released = [False, False, False]
-        
-        # Atualiza posição do mouse
+        """Atualiza estado das teclas e mouse (compatibilidade)"""
+        self.clear_frame()
+        self.update_mouse()
+
+    def update_mouse(self):
+        """Atualiza posição e botões do mouse"""
         self.mouse_pos = pygame.mouse.get_pos()
-        
-        # Atualiza botões do mouse
+
         mouse_buttons = pygame.mouse.get_pressed()
         for i in range(3):
             if mouse_buttons[i] and not self.mouse_buttons[i]:
@@ -35,6 +32,13 @@ class InputManager:
             elif not mouse_buttons[i] and self.mouse_buttons[i]:
                 self.mouse_buttons_just_released[i] = True
             self.mouse_buttons[i] = mouse_buttons[i]
+
+    def clear_frame(self):
+        """Limpa estados de just pressed/released no fim do frame"""
+        self.keys_just_pressed.clear()
+        self.keys_just_released.clear()
+        self.mouse_buttons_just_pressed = [False, False, False]
+        self.mouse_buttons_just_released = [False, False, False]
     
     def handle_event(self, event):
         """Processa um evento do Pygame"""
