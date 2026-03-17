@@ -55,7 +55,12 @@ class Navecraft:
             if self.game_state == "menu":
                 result = self.main_menu.handle_input(event)
                 if result == "play":
+                    self.game = Game()
                     self.game_state = "playing"
+                elif result == "load":
+                    self.game = Game()
+                    if self.game.save_system.load_game(self.game):
+                        self.game_state = "playing"
                 elif result == "fullscreen":
                     self.toggle_fullscreen()
                 elif result == "quit":
@@ -133,7 +138,7 @@ class Navecraft:
         elif self.game_state == "game_over":
             # Renderiza o jogo e menu de game over
             self.game.render(self.screen)
-            self.game_over_menu.render(self.screen, score=0)  # TODO: Implementar pontuação
+            self.game_over_menu.render(self.screen, score=self.game.score)
         
         # Atualiza a tela
         pygame.display.flip()

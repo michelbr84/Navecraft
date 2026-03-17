@@ -100,6 +100,75 @@ class WorldGenerator:
         
         return blocks
     
+    def generate_caves(self, planets):
+        """Gera cavernas dentro/ao redor dos planetas"""
+        cave_blocks = []
+        for planet in planets:
+            if planet.planet_type in ('GAS',):
+                continue
+
+            num_caves = random.randint(1, 3)
+            for _ in range(num_caves):
+                # Entrada na superficie do planeta
+                entrance_angle = random.uniform(0, math.pi * 2)
+                cx = planet.x + math.cos(entrance_angle) * planet.radius * 0.9
+                cy = planet.y + math.sin(entrance_angle) * planet.radius * 0.9
+
+                tunnel_length = random.randint(8, 20)
+
+                for step in range(tunnel_length):
+                    # Direcao para o centro do planeta
+                    to_cx = planet.x - cx
+                    to_cy = planet.y - cy
+                    dist = math.sqrt(to_cx ** 2 + to_cy ** 2)
+
+                    if dist > 0:
+                        bias_x = to_cx / dist * 0.6
+                        bias_y = to_cy / dist * 0.6
+                    else:
+                        bias_x, bias_y = 0, 0
+
+                    cx += (bias_x + random.uniform(-0.5, 0.5)) * BLOCK_SIZE * 1.5
+                    cy += (bias_y + random.uniform(-0.5, 0.5)) * BLOCK_SIZE * 1.5
+
+                    # Paredes do tunel
+                    wall_w = random.randint(2, 4)
+                    for wx in range(-wall_w, wall_w + 1):
+                        for wy in range(-wall_w, wall_w + 1):
+                            if abs(wx) >= wall_w - 1 or abs(wy) >= wall_w - 1:
+                                bx = cx + wx * BLOCK_SIZE
+                                by = cy + wy * BLOCK_SIZE
+                                bt = self._cave_block_type(planet.planet_type)
+                                cave_blocks.append(Block(bx, by, bt))
+
+                    # Camaras ocasionais
+                    if random.random() < 0.2:
+                        for angle_deg in range(0, 360, 20):
+                            a = math.radians(angle_deg)
+                            r = random.randint(3, 5)
+                            bx = cx + math.cos(a) * r * BLOCK_SIZE
+                            by = cy + math.sin(a) * r * BLOCK_SIZE
+                            bt = self._cave_block_type(planet.planet_type)
+                            cave_blocks.append(Block(bx, by, bt))
+
+        return cave_blocks
+
+    def _cave_block_type(self, planet_type):
+        """Tipo de bloco para paredes de caverna baseado no planeta"""
+        mapping = {
+            'ROCK': ['IRON', 'IRON', 'GOLD'],
+            'ICE': ['OXYGEN', 'CRYSTAL', 'OXYGEN'],
+            'METAL': ['IRON', 'GOLD', 'IRON'],
+            'CRYSTAL': ['CRYSTAL', 'GOLD', 'CRYSTAL'],
+            'LAVA': ['IRON', 'FUEL', 'GOLD'],
+            'RADIOACTIVE': ['CRYSTAL', 'GOLD', 'CRYSTAL'],
+            'WATER': ['OXYGEN', 'IRON', 'OXYGEN'],
+            'DESERT': ['IRON', 'GOLD', 'IRON'],
+            'TOXIC': ['CRYSTAL', 'FUEL', 'OXYGEN'],
+        }
+        choices = mapping.get(planet_type, ['IRON', 'GOLD', 'CRYSTAL'])
+        return random.choice(choices)
+
     def generate_enemies(self):
         """Gera inimigos proceduralmente"""
         enemies = []

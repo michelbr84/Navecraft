@@ -159,5 +159,7 @@ CONTROLS = {
     'UPGRADE_OXYGEN': [pygame.K_F5],
     'UPGRADE_FUEL': [pygame.K_F6],
     'MULTIPLAYER_TOGGLE': [pygame.K_F7],
-    'MULTIPLAYER_ADD_PLAYER': [pygame.K_F8]
+    'MULTIPLAYER_ADD_PLAYER': [pygame.K_F8],
+    'QUICK_SAVE': [pygame.K_F9],
+    'BUILD_STATION': [pygame.K_b]
 }

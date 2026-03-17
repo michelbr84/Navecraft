@@ -16,13 +16,14 @@ class HUD:
         # Por enquanto, apenas armazena referência à nave
         self.spaceship = spaceship
     
-    def render(self, surface, spaceship, camera_x, camera_y):
+    def render(self, surface, spaceship, camera_x, camera_y, score=0):
         """Renderiza o HUD"""
         if not spaceship:
             return
-            
+
         # Atualiza referência à nave
         self.spaceship = spaceship
+        self.score = score
             
         # Barra de vida
         self.render_health_bar(surface)
@@ -47,6 +48,9 @@ class HUD:
         
         # Bloco selecionado
         self.render_selected_block(surface)
+
+        # Pontuação
+        self.render_score(surface)
     
     def render_selected_block(self, surface):
         """Renderiza bloco selecionado para construção"""
@@ -194,6 +198,11 @@ class HUD:
         fuel_text = self.font.render(f"Combustível: {int(self.spaceship.fuel)}/{self.spaceship.max_fuel}", True, WHITE)
         surface.blit(fuel_text, (x + 5, y - 25))
     
+    def render_score(self, surface):
+        """Renderiza pontuação"""
+        score_text = self.font.render(f"Pontos: {self.score}", True, STAR_YELLOW)
+        surface.blit(score_text, (SCREEN_WIDTH - 200, 50))
+
     def render_position_info(self, surface):
         """Renderiza informações de posição"""
         x = SCREEN_WIDTH - 200

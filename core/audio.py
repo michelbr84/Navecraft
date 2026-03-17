@@ -11,13 +11,16 @@ from settings import *
 class AudioSystem:
     def __init__(self):
         """Inicializa o sistema de áudio"""
-        # Temporariamente desabilitado para evitar erros
         self.sounds = {}
         self.music_enabled = False
         self.sfx_enabled = False
-        
-        # Gera sons básicos
-        # self.generate_basic_sounds()  # Desabilitado temporariamente
+
+        try:
+            self.generate_basic_sounds()
+            self.sfx_enabled = True
+        except Exception as e:
+            print(f"Aviso: Audio nao inicializado: {e}")
+            self.sfx_enabled = False
     
     def convert_to_stereo(self, wave):
         """Converte onda mono para estéreo"""
@@ -44,6 +47,9 @@ class AudioSystem:
         
         # Som de propulsão (ruído filtrado)
         self.sounds['thrust'] = self.generate_thrust_sound()
+
+        # Alias
+        self.sounds['shoot'] = self.sounds['laser']
     
     def generate_laser_sound(self):
         """Gera som de laser (onda quadrada)"""
@@ -69,114 +75,84 @@ class AudioSystem:
         """Gera som de explosão (ruído branco filtrado)"""
         duration = 0.5  # 500ms
         samples = int(SAMPLE_RATE * duration)
-        
+
         # Gera ruído branco
-        noise = np.random.uniform(-1, 1, samples)
-        
+        noise_data = np.random.uniform(-1, 1, samples)
+
         # Aplica filtro passa-baixa
         cutoff = 0.1
-        b = [cutoff]
-        a = [1, cutoff - 1]
-        filtered_noise = np.convolve(noise, b, mode='same')
-        
+        filtered_noise = np.convolve(noise_data, [cutoff], mode='same')
+
         # Aplica envelope
         t = np.linspace(0, duration, samples)
         envelope = np.exp(-3 * t)
         wave = filtered_noise * envelope * 0.4
-        
-        # Converte para formato do Pygame
-        wave = (wave * 32767).astype(np.int16)
-        return pygame.sndarray.make_sound(wave)
+
+        return self.convert_to_stereo(wave)
     
     def generate_collect_sound(self):
         """Gera som de coleta (onda senoidal)"""
         duration = 0.2  # 200ms
         samples = int(SAMPLE_RATE * duration)
-        
+
         # Frequência ascendente
-        start_freq = 400
-        end_freq = 800
-        
         t = np.linspace(0, duration, samples)
-        frequency = np.linspace(start_freq, end_freq, samples)
-        
+        frequency = np.linspace(400, 800, samples)
+
         # Gera onda senoidal com frequência variável
         wave = 0.3 * np.sin(2 * np.pi * frequency * t)
-        
+
         # Aplica envelope
         envelope = np.exp(-2 * t)
         wave = wave * envelope
-        
-        # Converte para formato do Pygame
-        wave = (wave * 32767).astype(np.int16)
-        return pygame.sndarray.make_sound(wave)
+
+        return self.convert_to_stereo(wave)
     
     def generate_mine_sound(self):
         """Gera som de mineração (onda triangular)"""
         duration = 0.3  # 300ms
         samples = int(SAMPLE_RATE * duration)
-        
-        # Frequência
-        frequency = 300
-        amplitude = 0.2
-        
+
         t = np.linspace(0, duration, samples)
-        
+
         # Gera onda triangular
-        wave = amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
-        
+        wave = 0.2 * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * 300 * t))
+
         # Aplica envelope
         envelope = np.exp(-1.5 * t)
         wave = wave * envelope
-        
-        # Converte para formato do Pygame
-        wave = (wave * 32767).astype(np.int16)
-        return pygame.sndarray.make_sound(wave)
+
+        return self.convert_to_stereo(wave)
     
     def generate_build_sound(self):
         """Gera som de construção (onda senoidal)"""
         duration = 0.15  # 150ms
         samples = int(SAMPLE_RATE * duration)
-        
-        # Frequência
-        frequency = 600
-        amplitude = 0.25
-        
+
         t = np.linspace(0, duration, samples)
-        
-        # Gera onda senoidal
-        wave = amplitude * np.sin(2 * np.pi * frequency * t)
-        
+        wave = 0.25 * np.sin(2 * np.pi * 600 * t)
+
         # Aplica envelope
         envelope = np.exp(-4 * t)
         wave = wave * envelope
-        
-        # Converte para formato do Pygame
-        wave = (wave * 32767).astype(np.int16)
-        return pygame.sndarray.make_sound(wave)
+
+        return self.convert_to_stereo(wave)
     
     def generate_thrust_sound(self):
         """Gera som de propulsão (ruído filtrado)"""
         duration = 0.1  # 100ms
         samples = int(SAMPLE_RATE * duration)
-        
+
         # Gera ruído
-        noise = np.random.uniform(-1, 1, samples)
-        
-        # Aplica filtro passa-alta
-        cutoff = 0.8
-        b = [cutoff]
-        a = [1, cutoff - 1]
-        filtered_noise = np.convolve(noise, b, mode='same')
-        
+        noise_data = np.random.uniform(-1, 1, samples)
+        filtered_noise = np.convolve(noise_data, [0.8], mode='same')
+
         # Aplica envelope
         t = np.linspace(0, duration, samples)
         envelope = np.exp(-2 * t)
         wave = filtered_noise * envelope * 0.3
-        
-        # Converte para formato do Pygame
-        wave = (wave * 32767).astype(np.int16)
-        return pygame.sndarray.make_sound(wave)
+
+        return self.convert_to_stereo(wave)
     
     def play_sound(self, sound_name):
         """Toca um som"""
@@ -225,9 +201,13 @@ class AudioSystem:
         """Toca música de fundo"""
         if not self.music_enabled:
             return
-            
-        music = self.generate_music_loop()
-        music.play(-1)  # Loop infinito
+
+        try:
+            music = self.generate_music_loop()
+            music.play(-1)  # Loop infinito
+        except Exception as e:
+            print(f"Aviso: Musica nao inicializada: {e}")
+            self.music_enabled = False
     
     def stop_music(self):
         """Para a música"""

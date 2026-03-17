@@ -18,6 +18,8 @@ from systems.missions import MissionSystem
 from systems.inventory import CraftingSystem
 from systems.upgrades import UpgradeSystem
 from systems.multiplayer import MultiplayerSystem
+from systems.stations import StationSystem
+from systems.save_system import SaveSystem
 from ui.hud import HUD
 from utils.debug import DebugSystem
 from utils.logger import game_logger
@@ -57,6 +59,9 @@ class Game:
         
         # Estado do jogo
         self.game_state = "playing"
+
+        # Pontuação
+        self.score = 0
         
         # Performance tracking
         self.last_frame_time = time.time()
@@ -65,6 +70,9 @@ class Game:
         self.game_time = 0
         self.visited_planets = set()
         
+        # Sistema de save/load
+        self.save_system = SaveSystem()
+
         # Inicializa o mundo
         self.initialize_world()
         self.audio_system.play_music() # Added music start
@@ -86,6 +94,9 @@ class Game:
         
         # Inicializa sistema de multiplayer
         self.multiplayer_system = MultiplayerSystem(self)
+
+        # Inicializa sistema de estacoes
+        self.station_system = StationSystem()
         
         # Gera planetas
         self.planets = self.world_generator.generate_planets()
@@ -94,6 +105,11 @@ class Game:
         # Gera blocos
         self.blocks = self.world_generator.generate_blocks()
         game_logger.info(f"Gerados {len(self.blocks)} blocos")
+
+        # Gera cavernas nos planetas
+        cave_blocks = self.world_generator.generate_caves(self.planets)
+        self.blocks.extend(cave_blocks)
+        game_logger.info(f"Gerados {len(cave_blocks)} blocos de cavernas")
         
         # Gera inimigos
         self.enemies = self.world_generator.generate_enemies()
@@ -151,6 +167,7 @@ class Game:
             if self.input_manager.is_control_just_pressed('MINE'):
                 mined_value = self.spaceship.mine(self.blocks)
                 if mined_value > 0:
+                    self.score += mined_value
                     print(f"Minado: {mined_value} recursos!")
                     self.audio_system.play_sound('mine')
                     self.audio_system.play_sound('collect')
@@ -163,6 +180,7 @@ class Game:
                         if block.collected and block.block_type:
                             reward = self.mission_system.update_mining_missions(block.block_type)
                             if reward:
+                                self.score += 100
                                 print(f"Missão completada! Recompensa: {reward}")
                                 game_logger.log_game_event("mission_completed", f"reward={reward}")
             
@@ -173,6 +191,7 @@ class Game:
                 world_mouse_y = mouse_y + self.camera_y
                 
                 if self.spaceship.build(self.blocks, world_mouse_x, world_mouse_y):
+                    self.score += 5
                     print(f"Construído bloco de {self.spaceship.selected_block_type}!")
                     self.audio_system.play_sound('build')
                     self.particle_system.create_collect_effect(world_mouse_x, world_mouse_y, (0, 255, 255)) # Added particle effect
@@ -182,6 +201,7 @@ class Game:
                     # Atualiza missões de construção
                     reward = self.mission_system.update_building_missions(self.spaceship.selected_block_type)
                     if reward:
+                        self.score += 100
                         print(f"Missão de construção completada! Recompensa: {reward}")
                         game_logger.log_game_event("mission_completed", f"building_reward={reward}")
             
@@ -315,12 +335,37 @@ class Game:
             elif self.input_manager.is_control_just_pressed('MULTIPLAYER_ADD_PLAYER'):
                 self.multiplayer_system.add_more_players()
                 game_logger.log_game_event("multiplayer", "add_player")
+
+            # Quick save
+            if self.input_manager.is_control_just_pressed('QUICK_SAVE'):
+                self.save_system.save_game(self)
+                game_logger.log_game_event("save", "quick_save")
+
+            # Construir estacao espacial
+            if self.input_manager.is_control_just_pressed('BUILD_STATION'):
+                bp_name, bp = self.station_system.get_selected_blueprint()
+                if self.station_system.build_station(
+                    bp_name, self.spaceship.x, self.spaceship.y,
+                    self.blocks, self.spaceship.inventory
+                ):
+                    self.score += 200
+                    print(f"Estacao construida: {bp['name']}!")
+                    self.audio_system.play_sound('build')
+                    self.particle_system.create_collect_effect(self.spaceship.x, self.spaceship.y, (0, 255, 255))
+                    game_logger.log_game_event("station_built", bp_name)
+                else:
+                    print(f"Recursos insuficientes ou espaco ocupado para {bp['name']}!")
+                    self.station_system.cycle_blueprint()
         
         # Atualiza missões de sobrevivência
         self.mission_system.update_survival_missions(self.game_time, self.spaceship)
         
         # Atualiza sistema de multiplayer
         self.multiplayer_system.update(self.input_manager)
+
+        # Aplica efeitos de estacoes espaciais
+        if self.spaceship:
+            self.station_system.apply_station_effects(self.spaceship)
         
         # Atualiza missões de exploração
         self.mission_system.update_exploration_missions(self.spaceship, self.visited_planets)
@@ -353,6 +398,7 @@ class Game:
                     if projectile in self.projectiles:
                         self.projectiles.remove(projectile)
                     if not enemy.is_alive():
+                        self.score += 50
                         self.enemies.remove(enemy)
                         self.particle_system.create_collect_effect(enemy.x, enemy.y, (255, 50, 0))
                         game_logger.log_game_event("enemy_killed", f"type={enemy.enemy_type}")
@@ -366,10 +412,15 @@ class Game:
                                            if abs(p.x - self.spaceship.x) < PARTICLE_CLEANUP_DISTANCE and 
                                               abs(p.y - self.spaceship.y) < PARTICLE_CLEANUP_DISTANCE]
         
-        # Atualiza câmera para seguir a nave
+        # Atualiza camera para seguir nave(s)
         if self.spaceship:
-            self.camera_x = self.spaceship.x - SCREEN_WIDTH // 2
-            self.camera_y = self.spaceship.y - SCREEN_HEIGHT // 2
+            cam_center = self.multiplayer_system.get_camera_center()
+            if cam_center:
+                self.camera_x = cam_center[0] - SCREEN_WIDTH // 2
+                self.camera_y = cam_center[1] - SCREEN_HEIGHT // 2
+            else:
+                self.camera_x = self.spaceship.x - SCREEN_WIDTH // 2
+                self.camera_y = self.spaceship.y - SCREEN_HEIGHT // 2
         
         # Atualiza contadores de objetos visíveis
         visible_planets = len([p for p in self.planets if -p.size < p.x - self.camera_x < SCREEN_WIDTH + p.size and -p.size < p.y - self.camera_y < SCREEN_HEIGHT + p.size])
@@ -392,6 +443,7 @@ class Game:
             self._performance_counter = 0
         
         if self._performance_counter % 60 == 0:  # A cada 60 frames
+            self.score += 1  # Pontos por sobrevivência
             fps = self.debug_system.debug_info.get('fps', 0)
             object_counts = f"P:{visible_planets},B:{visible_blocks},E:{visible_enemies},Pt:{visible_particles}"
             game_logger.log_performance(fps, frame_time, object_counts)
@@ -401,6 +453,9 @@ class Game:
             inventory_info = f"Energia: {self.spaceship.energy:.0f}, Oxigênio: {self.spaceship.oxygen:.0f}, Combustível: {self.spaceship.fuel:.0f}"
             self.debug_system.set_debug_info('inventory_info', inventory_info)
         
+        # Autosave
+        self.save_system.check_autosave(self)
+
         # Verifica game over
         if self.spaceship and not self.spaceship.is_alive():
             self.game_state = "game_over"
@@ -458,10 +513,13 @@ class Game:
         
         # Renderiza HUD
         if self.spaceship:
-            self.hud.render(surface, self.spaceship, self.camera_x, self.camera_y)
+            self.hud.render(surface, self.spaceship, self.camera_x, self.camera_y, self.score)
         
         # Renderiza missões
         self.mission_system.render_missions(surface)
+
+        # Renderiza info de estacao selecionada
+        self.station_system.render_blueprint_info(surface)
         
         # Renderiza informações de debug
         self.debug_system.render_debug_info(surface)

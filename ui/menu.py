@@ -16,9 +16,10 @@ class Menu:
         self.parent_menu = "main"  # Menu para retornar de settings
         self.selected_option = 0
         self.menu_options = {
-            "main": ["Jogar", "Configurações", "Sobre", "Sair"],
+            "main": ["Jogar", "Carregar Jogo", "Configurações", "Sobre", "Sair"],
             "pause": ["Continuar", "Configurações", "Menu Principal", "Sair"],
-            "settings": ["Volume", "Tela Cheia", "Voltar"]
+            "settings": ["Volume", "Tela Cheia", "Voltar"],
+            "about": ["Voltar"]
         }
     
     def handle_input(self, event):
@@ -38,6 +39,9 @@ class Menu:
                     self.selected_option = 0
                     if self.parent_menu == "pause":
                         return None  # Stay in pause state
+                elif self.current_menu == "about":
+                    self.current_menu = "main"
+                    self.selected_option = 0
         
         return None
     
@@ -46,13 +50,16 @@ class Menu:
         if self.current_menu == "main":
             if self.selected_option == 0:  # Jogar
                 return "play"
-            elif self.selected_option == 1:  # Configurações
+            elif self.selected_option == 1:  # Carregar Jogo
+                return "load"
+            elif self.selected_option == 2:  # Configurações
                 self.parent_menu = "main"
                 self.current_menu = "settings"
                 self.selected_option = 0
-            elif self.selected_option == 2:  # Sobre
-                return "about"
-            elif self.selected_option == 3:  # Sair
+            elif self.selected_option == 3:  # Sobre
+                self.current_menu = "about"
+                self.selected_option = 0
+            elif self.selected_option == 4:  # Sair
                 return "quit"
 
         elif self.current_menu == "pause":
@@ -74,6 +81,11 @@ class Menu:
                 return "fullscreen"
             elif self.selected_option == 2:  # Voltar
                 self.current_menu = self.parent_menu
+                self.selected_option = 0
+
+        elif self.current_menu == "about":
+            if self.selected_option == 0:  # Voltar
+                self.current_menu = "main"
                 self.selected_option = 0
 
         return None
@@ -113,16 +125,37 @@ class Menu:
         if self.current_menu == "main":
             instructions = [
                 "Controles:",
-                "WASD/Setas - Movimentação",
-                "E - Mineração",
-                "Q - Construção",
-                "I - Inventário",
+                "WASD/Setas - Movimentacao",
+                "Espaco - Tiro | E - Mineracao | Q - Construcao",
+                "1-5 - Selecionar bloco | B - Estacao espacial",
+                "R/T/Y/U - Crafting | F11 - Tela cheia",
                 "ESC - Pausa"
             ]
-            
+
             for i, instruction in enumerate(instructions):
                 text = self.font_small.render(instruction, True, LIGHT_GRAY)
                 text_rect = text.get_rect(left=50, top=400 + i * 25)
+                surface.blit(text, text_rect)
+
+        elif self.current_menu == "about":
+            about_lines = [
+                "Navecraft - Minecraft no Espaco",
+                "",
+                "Um jogo de sobrevivencia e exploracao espacial",
+                "100% procedural: graficos, sons e mundo gerados por codigo",
+                "",
+                "Controle uma nave espacial, explore planetas,",
+                "minere recursos, construa estruturas e sobreviva!",
+                "",
+                "Desenvolvido em Python com Pygame",
+                "github.com/michelbr84/Navecraft",
+            ]
+
+            for i, line in enumerate(about_lines):
+                color = CYAN if i == 0 else LIGHT_GRAY
+                font = self.font_medium if i == 0 else self.font_small
+                text = font.render(line, True, color)
+                text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 180 + i * 28))
                 surface.blit(text, text_rect)
     
     def set_menu(self, menu_name):
