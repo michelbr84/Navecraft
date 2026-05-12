@@ -49,7 +49,7 @@ class FloatingText:
 
 
 class FeedbackSystem:
-    """Centralized juice — floating text, hitstop, flash, shake, slow-mo."""
+    """Centralized juice — floating text, hitstop, flash, shake, slow-mo, letterbox."""
 
     def __init__(self):
         self.texts = []
@@ -62,6 +62,10 @@ class FeedbackSystem:
         self.vignette_intensity = 0.0
         self.slowmo_factor = 1.0
         self.slowmo_remaining = 0
+        # Cinematic letterbox — animated bars top/bottom during boss intros etc.
+        self.letterbox_target = 0  # 0..1 — how tall the bars are (fraction of screen)
+        self.letterbox_current = 0.0
+        self.letterbox_text = None  # optional cinematic text shown between the bars
 
     # --- Floating text ---
     def floating(self, x, y, text, color=(255, 255, 0), lifetime=50, size=22, world_space=True):
@@ -118,6 +122,15 @@ class FeedbackSystem:
     def set_vignette(self, intensity):
         self.vignette_intensity = max(0.0, min(1.0, intensity))
 
+    # --- Cinematic letterbox ---
+    def letterbox(self, height_ratio=0.08, text=None):
+        """Slide cinematic black bars in. Pass 0 to slide out. Optional centered text."""
+        if is_reduce_motion():
+            # Reduce motion: jump to target instantly, skip animation.
+            self.letterbox_current = height_ratio
+        self.letterbox_target = max(0.0, min(0.25, height_ratio))
+        self.letterbox_text = text
+
     # --- Lifecycle ---
     def update(self):
         for t in self.texts[:]:
@@ -136,6 +149,9 @@ class FeedbackSystem:
             self.slowmo_remaining -= 1
             if self.slowmo_remaining <= 0:
                 self.slowmo_factor = 1.0
+        # Letterbox ease toward target
+        if self.letterbox_current != self.letterbox_target:
+            self.letterbox_current += (self.letterbox_target - self.letterbox_current) * 0.12
 
     def render_world(self, surface, camera_x, camera_y):
         for t in self.texts:
@@ -155,6 +171,23 @@ class FeedbackSystem:
         # Vignette
         if self.vignette_intensity > 0:
             self._render_vignette(surface)
+        # Cinematic letterbox
+        if self.letterbox_current > 0.001:
+            self._render_letterbox(surface)
+
+    def _render_letterbox(self, surface):
+        w, h = display.WIDTH, display.HEIGHT
+        bar_h = int(h * self.letterbox_current)
+        if bar_h <= 0:
+            return
+        pygame.draw.rect(surface, (0, 0, 0), (0, 0, w, bar_h))
+        pygame.draw.rect(surface, (0, 0, 0), (0, h - bar_h, w, bar_h))
+        if self.letterbox_text and bar_h >= 20:
+            font = get_font(28)
+            text_surf = render_outlined(font, self.letterbox_text, (220, 220, 240), (0, 0, 0), 2)
+            x = (w - text_surf.get_width()) // 2
+            y = h - bar_h + (bar_h - text_surf.get_height()) // 2
+            surface.blit(text_surf, (x, y))
 
     def _render_vignette(self, surface):
         w, h = display.WIDTH, display.HEIGHT

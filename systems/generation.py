@@ -382,6 +382,8 @@ class Block:
         self.damage_flash = 0  # frames remaining of mining flash
         # Pre-compute irregular polygon offsets
         self._poly_offsets = self._generate_irregular_offsets()
+        # Procedural surface speckles (cached per-instance)
+        self._surface_detail = self._generate_surface_detail()
         # Sparkle phase
         self._sparkle_phase = random.uniform(0, math.pi * 2)
 
@@ -393,6 +395,18 @@ class Block:
             r = (self.size / 2) * rng.uniform(0.85, 1.15)
             offsets.append((angle, r))
         return offsets
+
+    def _generate_surface_detail(self):
+        """Procedural noise-based surface speckles unique per block."""
+        rng = random.Random(int(self.x * 23 + self.y * 41 + 7))
+        details = []
+        for _ in range(6):
+            ang = rng.uniform(0, math.pi * 2)
+            r = rng.uniform(0, self.size * 0.35)
+            shade = rng.uniform(0.5, 0.85)
+            sz = rng.choice([1, 1, 1, 2])
+            details.append((ang, r, shade, sz))
+        return details
 
     def render(self, surface, camera_x, camera_y):
         screen_x = int(self.x - camera_x)
@@ -434,6 +448,17 @@ class Block:
                 p1 = (screen_x + math.cos(a1) * r, screen_y + math.sin(a1) * r)
                 p2 = (screen_x + math.cos(a2) * r * 0.4, screen_y + math.sin(a2) * r * 0.4)
                 pygame.draw.line(surface, (0, 0, 0), p1, p2, 1)
+
+        # Procedural speckles (noise detail — gives each block a unique surface)
+        for ang_off, r_off, shade, sz in self._surface_detail:
+            a = ang_off + self.rotation * 0.3
+            dx = math.cos(a) * r_off
+            dy = math.sin(a) * r_off
+            sc = (int(color[0] * shade), int(color[1] * shade), int(color[2] * shade))
+            if sz == 1:
+                surface.set_at((int(screen_x + dx), int(screen_y + dy)), sc)
+            else:
+                pygame.draw.circle(surface, sc, (int(screen_x + dx), int(screen_y + dy)), 1)
 
         # Border
         pygame.draw.polygon(surface, (240, 240, 240), pts, 1)

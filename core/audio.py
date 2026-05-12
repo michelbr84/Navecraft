@@ -83,6 +83,23 @@ class AudioSystem:
         self.ambient_volume = float(config.get('audio', 'ambient', default=0.5))
         self.ui_volume = float(config.get('audio', 'ui', default=0.7))
 
+    def _layered_hit(self, sub_freq=80, body_freq=300, crack_freq=2000, dur=0.18):
+        """Multi-layer hit synth: sub (rumble) + body (impact) + crack (high)."""
+        sub = self._make_tone(sub_freq, dur, wave='sine', amp=0.3,
+                              attack=0.005, decay=0.05, sustain=0.3, release=0.1,
+                              freq_end=sub_freq * 0.6)
+        body = self._make_tone(body_freq, dur, wave='tri', amp=0.3,
+                               attack=0.002, decay=0.04, sustain=0.5, release=0.1,
+                               freq_end=body_freq * 0.5)
+        crack = self._make_tone(crack_freq, dur * 0.3, wave='noise', amp=0.18,
+                                attack=0.001, decay=0.02, sustain=0.0, release=0.03)
+        # Pad crack to dur length.
+        if len(crack) < len(body):
+            crack = np.concatenate([crack, np.zeros(len(body) - len(crack))])
+        else:
+            crack = crack[:len(body)]
+        return sub + body + crack
+
     # ----- sound generation -----
     def _make_tone(self, freq, dur, attack=0.05, decay=0.1, sustain=0.7, release=0.2, wave='sine', amp=0.3, freq_end=None):
         n = int(SAMPLE_RATE * dur)
@@ -145,12 +162,12 @@ class AudioSystem:
         wave = self._make_tone(200, 0.08, wave='noise', amp=0.18)
         self.sounds['thrust'] = _to_stereo(wave)
 
-        # Per-enemy hit/death distinctive sounds
-        self.sounds['hit_drone'] = _to_stereo(self._make_tone(700, 0.08, wave='square', amp=0.25, freq_end=400))
-        self.sounds['hit_android'] = _to_stereo(self._make_tone(280, 0.12, wave='tri', amp=0.3))
-        self.sounds['hit_sniper'] = _to_stereo(self._make_tone(1200, 0.06, wave='sine', amp=0.25, freq_end=600))
-        self.sounds['hit_arachnoid'] = _to_stereo(self._make_tone(400, 0.1, wave='saw', amp=0.25))
-        self.sounds['hit_boss'] = _to_stereo(self._make_tone(180, 0.18, wave='tri', amp=0.4))
+        # Per-enemy hit/death distinctive sounds — now layered (sub+body+crack).
+        self.sounds['hit_drone'] = _to_stereo(self._layered_hit(sub_freq=120, body_freq=700, crack_freq=2500, dur=0.10))
+        self.sounds['hit_android'] = _to_stereo(self._layered_hit(sub_freq=70, body_freq=280, crack_freq=1500, dur=0.16))
+        self.sounds['hit_sniper'] = _to_stereo(self._layered_hit(sub_freq=180, body_freq=1100, crack_freq=3200, dur=0.08))
+        self.sounds['hit_arachnoid'] = _to_stereo(self._layered_hit(sub_freq=90, body_freq=400, crack_freq=1800, dur=0.12))
+        self.sounds['hit_boss'] = _to_stereo(self._layered_hit(sub_freq=55, body_freq=180, crack_freq=900, dur=0.22))
 
         # UI - click, hover, confirm, cancel
         self.sounds['ui_click'] = _to_stereo(self._make_tone(900, 0.05, wave='sine', amp=0.2))
@@ -273,6 +290,39 @@ class AudioSystem:
                 self._combat_channel.set_volume(0)
         except Exception:
             pass
+
+    def duck_music(self, factor=0.3, frames=60):
+        """Temporarily lower music volume so an important SFX cuts through."""
+        if not self.music_enabled:
+            return
+        self._duck_factor = max(0.0, min(1.0, factor))
+        self._duck_frames = max(0, int(frames))
+        try:
+            base = self.master_volume * self.music_volume * self._duck_factor
+            if self._music_channel:
+                self._music_channel.set_volume(base)
+            combat_ch = getattr(self, '_combat_channel', None)
+            if combat_ch:
+                combat_ch.set_volume(base * self._combat_intensity)
+        except Exception:
+            pass
+
+    def update_duck(self):
+        """Per-frame ducking decay. Call once per game frame."""
+        if getattr(self, '_duck_frames', 0) > 0:
+            self._duck_frames -= 1
+            if self._duck_frames == 0:
+                # Restore.
+                try:
+                    if self._music_channel:
+                        self._music_channel.set_volume(self.master_volume * self.music_volume *
+                                                       (1.0 - self._combat_intensity))
+                    combat_ch = getattr(self, '_combat_channel', None)
+                    if combat_ch:
+                        combat_ch.set_volume(self.master_volume * self.music_volume *
+                                             self._combat_intensity)
+                except Exception:
+                    pass
 
     def stop_music(self):
         if self._music_channel:
