@@ -58,13 +58,26 @@ class LightingSystem:
         self._sprite_cache[key] = surf
         return surf
 
-    def render(self, surface, camera_x, camera_y, ambient=0.85):
+    def render(self, surface, camera_x, camera_y, ambient=1.0):
+        # ambient < 1.0 darkens the scene (multiplicative); lights are then added on top.
+        # Default ambient=1.0 means "no darkening" — additive lights only.
         if is_reduce_motion():
             return  # Skip lighting overlay entirely
-        # Additive light pass: composite all lights onto a buffer, then overlay
         w, h = display.WIDTH, display.HEIGHT
+
+        # 1) Optional darkening pass (only when ambient < 1.0).
+        if ambient < 1.0:
+            v = int(255 * max(0.0, min(1.0, ambient)))
+            dark = pygame.Surface((w, h))
+            dark.fill((v, v, v))
+            surface.blit(dark, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+        # 2) Additive light pass: composite lights onto a transparent buffer.
+        if not self.lights:
+            return
         light_buf = pygame.Surface((w, h), pygame.SRCALPHA)
-        light_buf.fill((int(255 * ambient), int(255 * ambient), int(255 * ambient), 0))
+        # Buffer starts fully transparent — DO NOT pre-fill with RGB > 0.
+        # A pre-fill with non-zero RGB and BLEND_RGBA_ADD turns the whole screen white.
         for l in self.lights:
             sx = int(l.x - camera_x - l.radius)
             sy = int(l.y - camera_y - l.radius)

@@ -3,7 +3,9 @@ Sistema de entrada do Navecraft
 """
 
 import pygame
-from settings import CONTROLS
+from settings import CONTROLS as BASE_CONTROLS
+from systems.rebind import apply_rebinds
+
 
 class InputManager:
     def __init__(self):
@@ -15,6 +17,12 @@ class InputManager:
         self.mouse_buttons = [False, False, False]  # Left, Middle, Right
         self.mouse_buttons_just_pressed = [False, False, False]
         self.mouse_buttons_just_released = [False, False, False]
+        # Apply persisted user keybinds (no-op if none set).
+        self.controls = apply_rebinds(BASE_CONTROLS)
+
+    def reload_rebinds(self):
+        """Re-resolve user keybinds (call after settings screen edits)."""
+        self.controls = apply_rebinds(BASE_CONTROLS)
         
     def update(self):
         """Atualiza estado das teclas e mouse (compatibilidade)"""
@@ -63,14 +71,14 @@ class InputManager:
     
     def is_control_pressed(self, control_name):
         """Verifica se um controle está pressionado"""
-        if control_name in CONTROLS:
-            return any(self.is_key_pressed(key) for key in CONTROLS[control_name])
+        if control_name in self.controls:
+            return any(self.is_key_pressed(key) for key in self.controls[control_name])
         return False
-    
+
     def is_control_just_pressed(self, control_name):
         """Verifica se um controle foi pressionado neste frame"""
-        if control_name in CONTROLS:
-            return any(self.is_key_just_pressed(key) for key in CONTROLS[control_name])
+        if control_name in self.controls:
+            return any(self.is_key_just_pressed(key) for key in self.controls[control_name])
         return False
     
     def get_movement_vector(self):

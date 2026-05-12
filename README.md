@@ -1,6 +1,10 @@
 # Navecraft
 
+[![Build](https://github.com/michelbr84/Navecraft/actions/workflows/build.yml/badge.svg)](https://github.com/michelbr84/Navecraft/actions/workflows/build.yml)
+
 Um jogo de sobrevivência e exploração espacial inspirado no Minecraft, desenvolvido em Python com Pygame.
+
+> **Documentação rápida:** [Manual do jogador](docs/MANUAL.md) · [Guia de mods](docs/MODDING.md) · [Como contribuir](CONTRIBUTING.md) · [Política de segurança](SECURITY.md) · [Changelog](CHANGELOG.md) · [Roadmap honesto](TODO.md)
 
 ## Descrição
 

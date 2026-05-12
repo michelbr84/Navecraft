@@ -21,7 +21,42 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pyinstaller>=6.0",
+    "coverage>=7.0",
+    "ruff>=0.4",
 ]
 
 [project.scripts]
 navecraft = "main:main"
+
+[tool.coverage.run]
+branch = true
+source = ["core", "systems", "ui", "utils", "entities"]
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+    "build/*",
+    "dist/*",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "def __repr__",
+]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — handled by line-length above
+    "E741",  # ambiguous variable name — used in math contexts
+    "F403",  # `from settings import *`
+    "F405",  # may be undefined or defined from star imports
+]

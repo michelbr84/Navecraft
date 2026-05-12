@@ -139,8 +139,11 @@ class Game:
                 self.enemies = self.enemies[:3]
         game_logger.info(f"Gerados {len(self.enemies)} inimigos")
 
-        # Merchants - one near origin
+        # Merchants - one near origin, two more at scattered offsets so the
+        # dynamic price system encourages trade routes between them.
         self.merchants.append(Merchant(spawn_x + 400, spawn_y - 200))
+        self.merchants.append(Merchant(spawn_x - 800, spawn_y + 600))
+        self.merchants.append(Merchant(spawn_x + 1200, spawn_y + 1500))
         # Pirate hunt mission chain auto-starts
         self.mission_system.start_chain('first_steps')
 
@@ -235,6 +238,7 @@ class Game:
                     if math.hypot(e.x - self.spaceship.x, e.y - self.spaceship.y) < 350:
                         threat += 1
             self.audio_system.update_combat_intensity(min(1.0, threat / 4.0))
+            self.audio_system.update_duck()
 
             # Distance accumulation for stats
             if self.spaceship and self._prev_pos:
@@ -259,6 +263,12 @@ class Game:
             # Boss trigger at high score
             if not self._boss_spawned and self.score > 500 and not GameMode.is_pacific():
                 self._spawn_boss()
+
+            # Boss letterbox auto-close
+            if getattr(self, '_boss_letterbox_frames', 0) > 0:
+                self._boss_letterbox_frames -= 1
+                if self._boss_letterbox_frames == 0:
+                    feedback.letterbox(0.0, text=None)
 
             # Autosave (skip in hardcore? still allow)
             try:
@@ -534,7 +544,12 @@ class Game:
         feedback.flash(color=(255, 0, 200), strength=120)
         feedback.shake(intensity=10, frames=20)
         feedback.slowmo(0.5, 30)
+        # Cinematic letterbox during the boss intro; clears after a few seconds.
+        feedback.letterbox(0.10, text="MINI-BOSS")
+        self._boss_letterbox_frames = 180  # ~3 seconds at 60 fps
         self.audio_system.play_sound('stinger_boss')
+        # Duck music briefly so the stinger lands.
+        self.audio_system.duck_music(0.25, frames=90)
         self.hud.push_alert("MINI-BOSS APROXIMANDO", color=(255, 60, 200), duration_frames=120)
 
     def _on_mission_complete(self, reward):

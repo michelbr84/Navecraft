@@ -28,6 +28,14 @@ dist/
 build/
 *.egg-info/
 
+# Test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.pytest_cache/
+.ruff_cache/
+
 # Save / config / telemetry / replays
 navecraft_save*.json
 navecraft_save*.bak*

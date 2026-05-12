@@ -74,6 +74,9 @@ class Navecraft:
         self.help_overlay = HelpOverlay()
         self.codex_screen = CodexScreen()
         self.settings_screen = SettingsScreen()
+        # Wire live audio settings — refresh AudioSystem volumes when the user changes them.
+        from ui.settings_screen import set_audio_change_listener
+        set_audio_change_listener(lambda: self.game.audio_system.refresh_volumes())
         self.inventory_screen = InventoryScreen()
         self.crafting_screen = CraftingScreen()
         self.world_map = WorldMap()
