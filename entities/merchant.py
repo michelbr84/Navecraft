@@ -1,10 +1,19 @@
 """
-Merchant NPC - simple trader stations the player can dock near to buy/sell.
+Merchant NPC - trader stations with dynamic supply/demand pricing.
+
+Each merchant carries a per-resource "supply level" sampled from its world
+position. Resources the local region is rich in are bought cheap and sold
+cheap; resources the region is scarce in command higher prices. This gives
+players an incentive to haul goods between merchants.
 """
 
 import math
 import random
 import pygame
+
+
+_BASE_BUY = {'IRON': 8, 'GOLD': 30, 'CRYSTAL': 60, 'FUEL': 4, 'OXYGEN': 12}
+_BASE_SELL = {'REPAIR_KIT': 5, 'ENERGY_PACK': 6, 'OXYGEN_TANK': 8}
 
 
 class Merchant:
@@ -14,11 +23,21 @@ class Merchant:
         self.size = 36
         self.faction = faction
         self.interaction_range = 80
-        self.inventory_buy = {  # what they buy from player and at what price
-            'IRON': 8, 'GOLD': 30, 'CRYSTAL': 60, 'FUEL': 4, 'OXYGEN': 12,
+        # Per-merchant supply factor in [0.6 .. 1.4] seeded by world position.
+        rng = random.Random(int(x * 311 + y * 1109))
+        # Supply multipliers for each resource (lower = abundant -> cheaper).
+        self._supply = {item: rng.uniform(0.6, 1.4) for item in _BASE_BUY}
+        # Specialization: one resource is *very* abundant (cheap to sell, low buy price).
+        self.specialty = rng.choice(list(_BASE_BUY.keys()))
+        self._supply[self.specialty] *= 0.7
+        # Compute prices once at construction (stable for a session).
+        self.inventory_buy = {
+            item: max(1, int(round(_BASE_BUY[item] * self._supply[item])))
+            for item in _BASE_BUY
         }
-        self.inventory_sell = {  # what they sell to player and at what price (in CRYSTAL)
-            'REPAIR_KIT': 5, 'ENERGY_PACK': 6, 'OXYGEN_TANK': 8,
+        self.inventory_sell = {
+            item: max(1, int(round(_BASE_SELL[item] * rng.uniform(0.85, 1.2))))
+            for item in _BASE_SELL
         }
 
     def in_range_of(self, ship):

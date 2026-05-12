@@ -139,8 +139,11 @@ class Game:
                 self.enemies = self.enemies[:3]
         game_logger.info(f"Gerados {len(self.enemies)} inimigos")
 
-        # Merchants - one near origin
+        # Merchants - one near origin, two more at scattered offsets so the
+        # dynamic price system encourages trade routes between them.
         self.merchants.append(Merchant(spawn_x + 400, spawn_y - 200))
+        self.merchants.append(Merchant(spawn_x - 800, spawn_y + 600))
+        self.merchants.append(Merchant(spawn_x + 1200, spawn_y + 1500))
         # Pirate hunt mission chain auto-starts
         self.mission_system.start_chain('first_steps')
 
