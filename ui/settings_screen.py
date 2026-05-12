@@ -10,6 +10,15 @@ from utils.i18n import t, set_language, available_languages
 
 TABS = ['video', 'audio', 'controls', 'gameplay', 'accessibility']
 
+# Callback invoked when audio settings change. Set by main.py to wire AudioSystem.refresh_volumes.
+_audio_change_listener = None
+
+
+def set_audio_change_listener(callback):
+    """Register a callback() invoked whenever an audio setting changes."""
+    global _audio_change_listener
+    _audio_change_listener = callback
+
 TAB_LABELS_KEY = {
     'video': 'settings.video',
     'audio': 'settings.audio',
@@ -24,6 +33,10 @@ class SettingsScreen:
         self.visible = False
         self.tab_idx = 0
         self.selected = 0
+        # Cached layout for mouse hit-testing — populated by render().
+        self._tab_rects = []
+        self._row_rects = []
+        self._panel_rect = None
 
     def toggle(self):
         self.visible = not self.visible
@@ -31,6 +44,40 @@ class SettingsScreen:
     def handle_event(self, event):
         if not self.visible:
             return False
+
+        # Mouse support
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            # Tab click?
+            for i, rect in enumerate(self._tab_rects):
+                if rect.collidepoint(mx, my):
+                    self.tab_idx = i
+                    self.selected = 0
+                    return True
+            # Row click?
+            rows = self._rows()
+            for i, rect in enumerate(self._row_rects):
+                if rect.collidepoint(mx, my):
+                    self.selected = i
+                    if i < len(rows):
+                        # Click left half = decrement, right half = increment.
+                        center_x = rect.x + rect.width // 2
+                        delta = 1 if mx >= center_x else -1
+                        self._adjust(rows[i], delta=delta)
+                    return True
+            # Click outside panel closes it
+            if self._panel_rect and not self._panel_rect.collidepoint(mx, my):
+                self.visible = False
+                config.save()
+                return True
+            return True  # Consume click even if nothing matched
+
+        if event.type == pygame.MOUSEWHEEL:
+            rows = self._rows()
+            if rows:
+                self._adjust(rows[self.selected], delta=event.y)
+                return True
+
         if event.type != pygame.KEYDOWN:
             return False
         if event.key == pygame.K_ESCAPE:
@@ -42,17 +89,21 @@ class SettingsScreen:
             self.selected = 0
             return True
         rows = self._rows()
+        if not rows:
+            return True
         if event.key == pygame.K_UP:
             self.selected = (self.selected - 1) % len(rows)
-        elif event.key == pygame.K_DOWN:
+            return True
+        if event.key == pygame.K_DOWN:
             self.selected = (self.selected + 1) % len(rows)
-        elif event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+            return True
+        if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
             self._adjust(rows[self.selected], delta=-1 if event.key == pygame.K_LEFT else 1)
             return True
-        elif event.key == pygame.K_RETURN:
+        if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER):
             self._adjust(rows[self.selected], delta=1)
             return True
-        return False
+        return True  # Consume all KEYDOWN while visible to prevent leak to game
 
     def _rows(self):
         tab = TABS[self.tab_idx]
@@ -152,6 +203,17 @@ class SettingsScreen:
         # Live-apply video
         if tab == 'video':
             display.apply_from_config(config.load()['display'])
+        # Live-apply audio
+        if tab == 'audio' and _audio_change_listener is not None:
+            try:
+                _audio_change_listener()
+            except Exception:
+                pass
+        # Persist immediately so a crash doesn't lose the change
+        try:
+            config.save()
+        except Exception:
+            pass
 
     def render(self, surface):
         if not self.visible:
@@ -165,23 +227,32 @@ class SettingsScreen:
         panel_h = min(560, h - 80)
         px = (w - panel_w) // 2
         py = (h - panel_h) // 2
-        draw_panel(surface, pygame.Rect(px, py, panel_w, panel_h),
+        self._panel_rect = pygame.Rect(px, py, panel_w, panel_h)
+        draw_panel(surface, self._panel_rect,
                    bg=(15, 15, 35), border=(0, 220, 255), bg_alpha=235, border_width=2, radius=10)
 
         title = render_outlined(get_font(30), t('menu.settings'), (255, 255, 255), (0, 0, 0), 2)
         surface.blit(title, (px + 20, py + 14))
 
-        # Tabs row
+        # Tabs row — record rects for click hit-testing
+        self._tab_rects = []
         for i, tab in enumerate(TABS):
             tab_x = px + 20 + i * 130
             color = (255, 255, 0) if i == self.tab_idx else (180, 180, 180)
             text = render_outlined(get_font(18), t(TAB_LABELS_KEY[tab]), color, (0, 0, 0), 1)
             surface.blit(text, (tab_x, py + 60))
+            self._tab_rects.append(pygame.Rect(tab_x, py + 60, max(text.get_width(), 120), text.get_height() + 4))
 
-        # Rows
+        # Rows — record rects for click hit-testing
         rows = self._rows()
+        self._row_rects = []
         for i, row in enumerate(rows):
             y = py + 100 + i * 36
+            row_rect = pygame.Rect(px + 20, y - 4, panel_w - 40, 32)
+            if i == self.selected:
+                hl = pygame.Surface((row_rect.width, row_rect.height), pygame.SRCALPHA)
+                hl.fill((40, 60, 100, 90))
+                surface.blit(hl, (row_rect.x, row_rect.y))
             color = (255, 255, 0) if i == self.selected else (220, 220, 220)
             label_key = row[1]
             label = t(label_key) if label_key.startswith(('settings.', 'hud.', 'menu.')) else label_key
@@ -191,9 +262,10 @@ class SettingsScreen:
             value = self._format_value(row)
             value_text = render_outlined(get_font(18), str(value), (200, 230, 255), (0, 0, 0), 1)
             surface.blit(value_text, (px + panel_w - value_text.get_width() - 30, y))
+            self._row_rects.append(row_rect)
 
         hint = render_outlined(get_font(14),
-                               "TAB=trocar aba  ↑↓=navegar  ←→=ajustar  ESC=fechar",
+                               "TAB=trocar aba  /\\=navegar  <>=ajustar  Mouse=clicar  ESC=fechar",
                                (180, 180, 180), (0, 0, 0), 1)
         surface.blit(hint, (px + (panel_w - hint.get_width()) // 2, py + panel_h - 28))
 
