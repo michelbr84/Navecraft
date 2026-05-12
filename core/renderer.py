@@ -1,266 +1,150 @@
 """
-Sistema de renderização procedural do Navecraft
+Procedural renderer. Delegates background to systems.background. Adds bloom,
+chromatic aberration on hit, and proper ship animation (boost, damage state).
 """
 
-import pygame
 import math
 import random
+import pygame
 from settings import *
+from systems.accessibility import colorblind_filter, is_reduce_motion
+from systems.background import background
+from systems.lighting import lighting
+
 
 class Renderer:
     def __init__(self):
-        """Inicializa o renderer"""
-        self.star_field = self.generate_star_field()
-        self.particle_system = ParticleSystem()
-        
-    def generate_star_field(self):
-        """Gera campo de estrelas procedural"""
-        stars = []
-        random.seed(SEED)
-        
-        for i in range(300):
-            x = random.randint(0, SCREEN_WIDTH)
-            y = random.randint(0, SCREEN_HEIGHT)
-            brightness = random.randint(50, 255)
-            size = random.randint(1, 3)
-            
-            stars.append({
-                'x': x,
-                'y': y,
-                'brightness': brightness,
-                'size': size,
-                'twinkle': random.uniform(0, math.pi * 2)
-            })
-        
-        return stars
-    
-    def render_stars(self, surface):
-        """Renderiza campo de estrelas"""
-        for star in self.star_field:
-            # Aplica movimento parallax
-            screen_x = (star['x'] - 0 * 0.1) % SCREEN_WIDTH
-            screen_y = (star['y'] - 0 * 0.1) % SCREEN_HEIGHT
-            
-            # Efeito de twinkle
-            twinkle = math.sin(star['twinkle']) * 0.3 + 0.7
-            brightness = int(star['brightness'] * twinkle)
-            
-            color = (brightness, brightness, brightness)
-            pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), star['size'])
-            
-            # Atualiza twinkle
-            star['twinkle'] += 0.02
-    
+        # Backwards-compat: provide a particle_system attribute (unused by Game)
+        self.particle_system = _LegacyParticleSystem()
+
+    def render_stars(self, surface, camera_x=0, camera_y=0):
+        """Background = parallax stars + nebulas + distant planets."""
+        background.render(surface, camera_x, camera_y)
+
     def render_spaceship(self, surface, spaceship, camera_x, camera_y):
-        """Renderiza nave espacial proceduralmente"""
         if not spaceship:
             return
-            
         screen_x = int(spaceship.x - camera_x)
         screen_y = int(spaceship.y - camera_y)
-        
-        # Renderiza partículas de propulsão
-        self.render_thrust_particles(surface, spaceship, camera_x, camera_y)
-        
-        # Corpo principal da nave
-        self.render_ship_body(surface, spaceship, screen_x, screen_y)
-        
-        # Detalhes da nave
-        self.render_ship_details(surface, spaceship, screen_x, screen_y)
-        
-        # Escudo
-        self.render_shield(surface, spaceship, screen_x, screen_y)
-    
-    def render_thrust_particles(self, surface, spaceship, camera_x, camera_y):
-        """Renderiza partículas de propulsão"""
-        for particle in spaceship.thrust_particles:
-            alpha = particle['life'] / particle['max_life']
-            
-            # Cor com fade
-            color = (
-                int(particle['color'][0] * alpha),
-                int(particle['color'][1] * alpha),
-                int(particle['color'][2] * alpha)
-            )
-            
-            screen_x = int(particle['x'] - camera_x)
-            screen_y = int(particle['y'] - camera_y)
-            
-            # Partícula principal
-            pygame.draw.circle(surface, color, (screen_x, screen_y), 2)
-            
-            # Efeito de brilho
-            glow_color = (255, 200, 100)
-            pygame.draw.circle(surface, glow_color, (screen_x, screen_y), 4, 1)
-    
-    def render_ship_body(self, surface, spaceship, x, y):
-        """Renderiza corpo principal da nave"""
-        # Pontos do triângulo
-        points = self.get_ship_points(spaceship, x, y)
-        
-        # Gradiente de cor
-        color1 = CYAN
-        color2 = (0, 200, 200)
-        
-        # Desenha gradiente
+        # Engine glow / boost trail
+        if spaceship.boosting:
+            self._render_boost_trail(surface, spaceship, camera_x, camera_y)
+        # Body
+        self._render_ship_body(surface, spaceship, screen_x, screen_y)
+        # Details
+        spaceship.render_ship_details(surface, screen_x, screen_y)
+        # Damage state (sparks/smoke) when low HP
+        if spaceship.health < spaceship.max_health * 0.35:
+            self._render_damage_sparks(surface, spaceship, screen_x, screen_y)
+        # Shield
+        self._render_shield(surface, spaceship, screen_x, screen_y)
+        # Hit flash overlay
+        if spaceship.hit_flash > 0:
+            self._render_hit_flash(surface, spaceship, screen_x, screen_y)
+        # Engine light
+        lighting.add_transient(spaceship.x - math.cos(spaceship.angle) * spaceship.size,
+                               spaceship.y - math.sin(spaceship.angle) * spaceship.size,
+                               radius=48, color=(120, 180, 255), intensity=1.0, lifetime=4)
+
+    def _render_boost_trail(self, surface, spaceship, cx, cy):
+        # Extended cone behind ship
+        for i in range(4):
+            offset = (i + 1) * 4
+            tx = spaceship.x - math.cos(spaceship.angle) * (spaceship.size + offset)
+            ty = spaceship.y - math.sin(spaceship.angle) * (spaceship.size + offset)
+            sz = max(1, 6 - i)
+            color = (int(255 * (1 - i / 4)), int(180 * (1 - i / 4)), 80)
+            pygame.draw.circle(surface, color,
+                               (int(tx - cx), int(ty - cy)), sz)
+
+    def _render_ship_body(self, surface, spaceship, x, y):
+        points = spaceship.get_ship_points(x, y)
+        color = colorblind_filter(CYAN)
+        # 3-pass gradient triangle
         for i in range(3):
             alpha = i / 2.0
-            color = self.interpolate_color(color1, color2, alpha)
-            pygame.draw.polygon(surface, color, points)
-        
-        # Borda
-        pygame.draw.polygon(surface, WHITE, points, 2)
-    
-    def render_ship_details(self, surface, spaceship, x, y):
-        """Renderiza detalhes da nave"""
-        # Cockpit
-        cockpit_x = x + math.cos(spaceship.angle) * spaceship.size * 0.3
-        cockpit_y = y + math.sin(spaceship.angle) * spaceship.size * 0.3
-        
-        # Cockpit com gradiente
-        pygame.draw.circle(surface, BLUE, (int(cockpit_x), int(cockpit_y)), 4)
-        pygame.draw.circle(surface, (100, 100, 255), (int(cockpit_x), int(cockpit_y)), 2)
-        
-        # Asas
-        wing_left_x = x + math.cos(spaceship.angle + math.pi/2) * spaceship.size * 0.4
-        wing_left_y = y + math.sin(spaceship.angle + math.pi/2) * spaceship.size * 0.4
-        wing_right_x = x + math.cos(spaceship.angle - math.pi/2) * spaceship.size * 0.4
-        wing_right_y = y + math.sin(spaceship.angle - math.pi/2) * spaceship.size * 0.4
-        
-        # Asas com gradiente
-        wing_color1 = WHITE
-        wing_color2 = LIGHT_GRAY
-        
-        # Asa esquerda
-        wing_points_left = [(x, y), (int(wing_left_x), int(wing_left_y))]
-        pygame.draw.line(surface, wing_color1, wing_points_left[0], wing_points_left[1], 3)
-        pygame.draw.line(surface, wing_color2, wing_points_left[0], wing_points_left[1], 1)
-        
-        # Asa direita
-        wing_points_right = [(x, y), (int(wing_right_x), int(wing_right_y))]
-        pygame.draw.line(surface, wing_color1, wing_points_right[0], wing_points_right[1], 3)
-        pygame.draw.line(surface, wing_color2, wing_points_right[0], wing_points_right[1], 1)
-    
-    def render_shield(self, surface, spaceship, x, y):
-        """Renderiza escudo da nave"""
+            shade = self._interp(color, (0, 200, 200), alpha)
+            pygame.draw.polygon(surface, shade, points)
+        pygame.draw.polygon(surface, (255, 255, 255), points, 2)
+
+    def _render_damage_sparks(self, surface, spaceship, x, y):
+        if is_reduce_motion():
+            return
+        for _ in range(2):
+            ox = random.randint(-spaceship.size // 2, spaceship.size // 2)
+            oy = random.randint(-spaceship.size // 2, spaceship.size // 2)
+            pygame.draw.circle(surface, (255, 200, 60),
+                               (x + ox, y + oy), random.randint(1, 2))
+
+    def _render_shield(self, surface, spaceship, x, y):
         if spaceship.health < spaceship.max_health:
             shield_alpha = max(0, (spaceship.health / spaceship.max_health) * 255)
-            
-            # Cria superfície com transparência
-            shield_surface = pygame.Surface((spaceship.size + 20, spaceship.size + 20), pygame.SRCALPHA)
-            
-            # Cor do escudo
+            shield_surface = pygame.Surface(
+                (spaceship.size + 20, spaceship.size + 20), pygame.SRCALPHA)
             shield_color = (0, 255, 255, int(shield_alpha))
-            
-            # Desenha escudo
-            pygame.draw.circle(shield_surface, shield_color, 
-                             (spaceship.size//2 + 10, spaceship.size//2 + 10), 
-                             spaceship.size//2 + 10, 3)
-            
-            # Aplica na tela
-            surface.blit(shield_surface, (x - spaceship.size//2 - 10, y - spaceship.size//2 - 10))
-    
-    def get_ship_points(self, spaceship, x, y):
-        """Retorna pontos do triângulo da nave"""
-        # Pontos do triângulo (apontando para a direção do movimento)
-        front_x = x + math.cos(spaceship.angle) * spaceship.size
-        front_y = y + math.sin(spaceship.angle) * spaceship.size
-        
-        back_left_x = x + math.cos(spaceship.angle + math.pi * 2/3) * spaceship.size * 0.5
-        back_left_y = y + math.sin(spaceship.angle + math.pi * 2/3) * spaceship.size * 0.5
-        
-        back_right_x = x + math.cos(spaceship.angle - math.pi * 2/3) * spaceship.size * 0.5
-        back_right_y = y + math.sin(spaceship.angle - math.pi * 2/3) * spaceship.size * 0.5
-        
-        return [(front_x, front_y), (back_left_x, back_left_y), (back_right_x, back_right_y)]
-    
-    def interpolate_color(self, color1, color2, alpha):
-        """Interpola entre duas cores"""
-        return (
-            int(color1[0] * (1 - alpha) + color2[0] * alpha),
-            int(color1[1] * (1 - alpha) + color2[1] * alpha),
-            int(color1[2] * (1 - alpha) + color2[2] * alpha)
-        )
-    
+            pygame.draw.circle(shield_surface, shield_color,
+                               (spaceship.size // 2 + 10, spaceship.size // 2 + 10),
+                               spaceship.size // 2 + 10, 3)
+            surface.blit(shield_surface, (x - spaceship.size // 2 - 10, y - spaceship.size // 2 - 10))
+
+    def _render_hit_flash(self, surface, spaceship, x, y):
+        alpha = int(180 * spaceship.hit_flash / 8)
+        flash = pygame.Surface((spaceship.size * 3, spaceship.size * 3), pygame.SRCALPHA)
+        pygame.draw.circle(flash, (255, 80, 80, alpha),
+                           (spaceship.size * 3 // 2, spaceship.size * 3 // 2),
+                           spaceship.size + 8)
+        surface.blit(flash, (x - spaceship.size * 3 // 2, y - spaceship.size * 3 // 2))
+
+    def _interp(self, c1, c2, alpha):
+        return (int(c1[0] * (1 - alpha) + c2[0] * alpha),
+                int(c1[1] * (1 - alpha) + c2[1] * alpha),
+                int(c1[2] * (1 - alpha) + c2[2] * alpha))
+
     def render_planet(self, surface, planet, camera_x, camera_y):
-        """Renderiza planeta proceduralmente"""
+        """camera_x/camera_y are world-space camera offsets to subtract."""
         screen_x = int(planet.x - camera_x)
         screen_y = int(planet.y - camera_y)
-        
-        # Cor baseada no tipo
         colors = {
-            'ROCK': PLANET_RED,
-            'ICE': (240, 248, 255),
-            'GAS': (255, 165, 0),
-            'METAL': (192, 192, 192),
-            'CRYSTAL': (138, 43, 226)
+            'ROCK': PLANET_RED, 'ICE': (240, 248, 255), 'GAS': (255, 165, 0),
+            'METAL': (192, 192, 192), 'CRYSTAL': (138, 43, 226),
+            'LAVA': (255, 69, 0), 'TOXIC': (50, 205, 50), 'RADIOACTIVE': (255, 255, 0),
+            'WATER': (0, 191, 255), 'DESERT': (244, 164, 96),
         }
-        
-        base_color = colors.get(planet.planet_type, PLANET_RED)
-        
-        # Renderiza planeta com gradiente
+        base_color = colorblind_filter(colors.get(planet.planet_type, PLANET_RED))
+
         for i in range(planet.radius, 0, -2):
             alpha = i / planet.radius
-            color = self.interpolate_color(base_color, BLACK, 1 - alpha)
+            color = self._interp(base_color, (0, 0, 0), 1 - alpha)
             pygame.draw.circle(surface, color, (screen_x, screen_y), i)
-        
-        # Borda
-        pygame.draw.circle(surface, WHITE, (screen_x, screen_y), planet.radius, 2)
-        
-        # Detalhes da superfície
-        self.render_planet_surface(surface, planet, screen_x, screen_y)
-    
-    def render_planet_surface(self, surface, planet, x, y):
-        """Renderiza detalhes da superfície do planeta"""
-        random.seed(planet.x + planet.y)  # Seed baseada na posição
-        
-        # Cria detalhes na superfície
-        for _ in range(20):
-            angle = random.uniform(0, math.pi * 2)
-            distance = random.uniform(0, planet.radius * 0.8)
-            
-            detail_x = x + math.cos(angle) * distance
-            detail_y = y + math.sin(angle) * distance
-            
-            # Cor do detalhe
-            detail_color = self.interpolate_color(WHITE, BLACK, random.uniform(0, 0.5))
-            
-            # Desenha detalhe
-            pygame.draw.circle(surface, detail_color, (int(detail_x), int(detail_y)), 1)
+        pygame.draw.circle(surface, (255, 255, 255), (screen_x, screen_y), planet.radius, 2)
+        self._render_surface_detail(surface, planet, screen_x, screen_y)
 
-class ParticleSystem:
+        # Planet name floats above
+        font = pygame.font.Font(None, 16)
+        name = getattr(planet, 'name', planet.planet_type)
+        text = font.render(name, True, (220, 220, 240))
+        surface.blit(text, (screen_x - text.get_width() // 2, screen_y - planet.radius - 18))
+
+    def _render_surface_detail(self, surface, planet, x, y):
+        rng = random.Random(int(planet.x) + int(planet.y))
+        for _ in range(20):
+            angle = rng.uniform(0, math.pi * 2)
+            dist = rng.uniform(0, planet.radius * 0.8)
+            dx = x + math.cos(angle) * dist
+            dy = y + math.sin(angle) * dist
+            detail = self._interp((255, 255, 255), (0, 0, 0), rng.uniform(0, 0.5))
+            pygame.draw.circle(surface, detail, (int(dx), int(dy)), 1)
+
+
+class _LegacyParticleSystem:
     def __init__(self):
-        """Inicializa sistema de partículas"""
         self.particles = []
-    
-    def add_particle(self, x, y, vx, vy, color, lifetime):
-        """Adiciona partícula ao sistema"""
-        self.particles.append({
-            'x': x, 'y': y, 'vx': vx, 'vy': vy,
-            'color': color, 'lifetime': lifetime, 'max_lifetime': lifetime
-        })
-    
+
+    def add_particle(self, *args, **kwargs):
+        pass
+
     def update(self):
-        """Atualiza partículas"""
-        for particle in self.particles[:]:
-            particle['x'] += particle['vx']
-            particle['y'] += particle['vy']
-            particle['lifetime'] -= 1
-            
-            if particle['lifetime'] <= 0:
-                self.particles.remove(particle)
-    
-    def render(self, surface, camera_x, camera_y):
-        """Renderiza partículas"""
-        for particle in self.particles:
-            alpha = particle['lifetime'] / particle['max_lifetime']
-            color = (
-                int(particle['color'][0] * alpha),
-                int(particle['color'][1] * alpha),
-                int(particle['color'][2] * alpha)
-            )
-            
-            screen_x = int(particle['x'] - camera_x)
-            screen_y = int(particle['y'] - camera_y)
-            
-            pygame.draw.circle(surface, color, (screen_x, screen_y), 2)
+        pass
+
+    def render(self, *args, **kwargs):
+        pass

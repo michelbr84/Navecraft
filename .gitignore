@@ -28,5 +28,11 @@ dist/
 build/
 *.egg-info/
 
-# Save files
-navecraft_save.json
+# Save / config / telemetry / replays
+navecraft_save*.json
+navecraft_save*.bak*
+navecraft_config.json
+navecraft_lifetime.json
+navecraft_telemetry.jsonl
+navecraft_replay.json
+screenshots/
