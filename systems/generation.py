@@ -196,14 +196,15 @@ class Planet:
         self.x = x
         self.y = y
         self.radius = radius
-        self.size = radius  # Para compatibilidade com colisões
+        self.size = radius
         self.planet_type = planet_type
-        self.mass = radius * 0.1 * gravity  # Massa proporcional ao raio e gravidade
+        self.mass = radius * 0.1 * gravity
         self.atmosphere = atmosphere
         self.temperature = temperature
         self.gravity = gravity
-        
-        # Gera características únicas do planeta
+        # Procedural memorable name
+        from systems.planet_names import generate_name
+        self.name = generate_name(int(x * 31 + y * 17))
         self.surface_features = self.generate_surface_features()
         self.resources = self.generate_resources()
     
@@ -372,63 +373,94 @@ class Block:
         self.y = y
         self.block_type = block_type
         self.size = BLOCK_SIZE
-        self.health = RESOURCE_TYPES[block_type]['value'] * 10  # Saúde baseada no valor
+        self.health = RESOURCE_TYPES[block_type]['value'] * 10
         self.max_health = self.health
         self.collected = False
-        
-        # Características únicas
         self.brightness = random.uniform(0.8, 1.2)
         self.rotation = random.uniform(0, math.pi * 2)
-        
+        self.rotation_speed = random.uniform(-0.005, 0.005)
+        self.damage_flash = 0  # frames remaining of mining flash
+        # Pre-compute irregular polygon offsets
+        self._poly_offsets = self._generate_irregular_offsets()
+        # Sparkle phase
+        self._sparkle_phase = random.uniform(0, math.pi * 2)
+
+    def _generate_irregular_offsets(self):
+        offsets = []
+        rng = random.Random(int(self.x * 13 + self.y * 7))
+        for i in range(8):
+            angle = i * math.pi / 4
+            r = (self.size / 2) * rng.uniform(0.85, 1.15)
+            offsets.append((angle, r))
+        return offsets
+
     def render(self, surface, camera_x, camera_y):
-        # Renderização básica - quadrado colorido
         screen_x = int(self.x - camera_x)
         screen_y = int(self.y - camera_y)
-        
-        # Cor baseada no tipo
+        from systems.accessibility import colorblind_filter
+
         colors = {
             'IRON': (169, 169, 169),
             'GOLD': (255, 215, 0),
             'CRYSTAL': (138, 43, 226),
             'FUEL': (255, 165, 0),
-            'OXYGEN': (135, 206, 235)
+            'OXYGEN': (135, 206, 235),
         }
-        
         base_color = colors.get(self.block_type, GRAY)
-        
-        # Aplica brilho
         color = (
             max(0, min(255, int(base_color[0] * self.brightness))),
             max(0, min(255, int(base_color[1] * self.brightness))),
-            max(0, min(255, int(base_color[2] * self.brightness)))
+            max(0, min(255, int(base_color[2] * self.brightness))),
         )
-        
-        rect = pygame.Rect(screen_x - BLOCK_SIZE//2, screen_y - BLOCK_SIZE//2, BLOCK_SIZE, BLOCK_SIZE)
-        pygame.draw.rect(surface, color, rect)
-        
-        # Borda com transparência baseada na saúde
-        health_alpha = self.health / self.max_health
-        border_color = (
-            max(0, min(255, int(255 * health_alpha))),
-            max(0, min(255, int(255 * health_alpha))),
-            max(0, min(255, int(255 * health_alpha)))
-        )
-        pygame.draw.rect(surface, border_color, rect, 2)
-        
-        # Efeito de brilho se for cristal
-        if self.block_type == 'CRYSTAL':
-            glow_color = (255, 255, 255)
-            glow_rect = pygame.Rect(screen_x - BLOCK_SIZE//2 - 2, screen_y - BLOCK_SIZE//2 - 2, 
-                                   BLOCK_SIZE + 4, BLOCK_SIZE + 4)
-            pygame.draw.rect(surface, glow_color, glow_rect, 1)
-    
+        color = colorblind_filter(color)
+
+        # Irregular polygon body
+        self.rotation += self.rotation_speed
+        pts = []
+        for ang, r in self._poly_offsets:
+            a = ang + self.rotation
+            pts.append((screen_x + math.cos(a) * r, screen_y + math.sin(a) * r))
+        pygame.draw.polygon(surface, color, pts)
+
+        # Damage cracks - drawn proportional to missing health
+        damage_ratio = 1.0 - (self.health / max(self.max_health, 1))
+        if damage_ratio > 0.1:
+            n_cracks = int(1 + damage_ratio * 4)
+            crack_rng = random.Random(int(self.x * 17 + self.y * 3))
+            for _ in range(n_cracks):
+                a1 = crack_rng.uniform(0, math.pi * 2)
+                a2 = a1 + crack_rng.uniform(0.5, 1.5)
+                r = self.size / 2
+                p1 = (screen_x + math.cos(a1) * r, screen_y + math.sin(a1) * r)
+                p2 = (screen_x + math.cos(a2) * r * 0.4, screen_y + math.sin(a2) * r * 0.4)
+                pygame.draw.line(surface, (0, 0, 0), p1, p2, 1)
+
+        # Border
+        pygame.draw.polygon(surface, (240, 240, 240), pts, 1)
+
+        # Sparkle on crystal/gold
+        if self.block_type in ('CRYSTAL', 'GOLD'):
+            self._sparkle_phase += 0.05
+            twinkle = (math.sin(self._sparkle_phase) + 1) * 0.5
+            sparkle_color = (255, 255, 255) if self.block_type == 'CRYSTAL' else (255, 230, 100)
+            r = int(2 + twinkle * 2)
+            pygame.draw.circle(surface, sparkle_color, (screen_x, screen_y - 2), r)
+
+        # Mining hit flash
+        if self.damage_flash > 0:
+            flash_alpha = int(220 * self.damage_flash / 6)
+            flash_surf = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(flash_surf, (255, 255, 200, flash_alpha),
+                               (self.size, self.size), self.size)
+            surface.blit(flash_surf, (screen_x - self.size, screen_y - self.size))
+            self.damage_flash -= 1
+
     def take_damage(self, damage):
-        """Recebe dano da mineração"""
         self.health = max(0, self.health - damage)
+        self.damage_flash = 6
         return self.health <= 0
-    
+
     def collect(self):
-        """Coleta o bloco"""
         if not self.collected and self.health <= 0:
             self.collected = True
             return RESOURCE_TYPES[self.block_type]['value']
