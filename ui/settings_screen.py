@@ -209,6 +209,14 @@ class SettingsScreen:
                 _audio_change_listener()
             except Exception:
                 pass
+        # Phase Y.6.2 — live-apply UI scale (clear cached fonts at the old
+        # scale so the new scale takes effect this frame without a restart).
+        if tab == 'accessibility' and key == 'ui_scale':
+            try:
+                from utils.font import clear_cache
+                clear_cache()
+            except Exception:
+                pass
         # Persist immediately so a crash doesn't lose the change
         try:
             config.save()

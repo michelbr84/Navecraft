@@ -90,6 +90,64 @@ class TestWhiteScreenRegression(unittest.TestCase):
         self.assertLess(white_count, len(colors) // 2,
                         "Frame is dominated by white pixels — lighting regression.")
 
+    def test_lighting_respects_intensity_argument(self):
+        """Phase 0.6 regression: a low-intensity light must produce a much
+        dimmer halo than a full-intensity light. Pre-fix the `intensity`
+        argument was discarded inside `_light_sprite`, so every transient
+        light depositing every frame stacked into a saturated white halo.
+        """
+        from systems.lighting import LightingSystem
+
+        # High-intensity light → bright halo
+        full = pygame.Surface((200, 200))
+        full.fill((20, 20, 40))
+        bright = LightingSystem()
+        bright.add_transient(100, 100, radius=48, color=(120, 180, 255),
+                             intensity=1.0, lifetime=1)
+        bright.render(full, 0, 0, ambient=1.0)
+
+        # Low-intensity light → faint halo on identical bg
+        dim_surf = pygame.Surface((200, 200))
+        dim_surf.fill((20, 20, 40))
+        dim = LightingSystem()
+        dim.add_transient(100, 100, radius=48, color=(120, 180, 255),
+                         intensity=0.2, lifetime=1)
+        dim.render(dim_surf, 0, 0, ambient=1.0)
+
+        # Sample the pixel a few px from the light center.
+        full_b = full.get_at((110, 100))[2]
+        dim_b  = dim_surf.get_at((110, 100))[2]
+        # Both must be brighter than bg (light is being applied),
+        self.assertGreater(full_b, 40, "Full-intensity light did not brighten pixel.")
+        self.assertGreater(dim_b, 40, "Low-intensity light did not brighten pixel at all.")
+        # And the dim variant must be measurably less bright (≥ 25 units),
+        # confirming intensity is actually consulted by the sprite.
+        self.assertGreater(full_b - dim_b, 25,
+                           f"Light intensity ignored: full={full_b} vs dim={dim_b}. "
+                           "Phase 0.6 fix regressed.")
+
+    def test_stacked_transient_lights_do_not_saturate(self):
+        """Phase 0.6 follow-up: even if many transient engine-style lights
+        re-add at the same point, the cumulative additive blend with
+        bucketed-intensity sprites must NOT saturate the destination to
+        pure white. Pre-fix this was the root cause of the visible halo."""
+        from systems.lighting import LightingSystem
+        surf = pygame.Surface((200, 200))
+        surf.fill((20, 20, 40))
+        lit = LightingSystem()
+        # 6 stacked low-intensity lights — well more than the renderer
+        # would ever emit in flight (cap is ~3 simultaneous).
+        for _ in range(6):
+            lit.add_transient(100, 100, radius=48, color=(120, 180, 255),
+                              intensity=0.3, lifetime=1)
+        lit.render(surf, 0, 0, ambient=1.0)
+        # Pixel directly at the light center should be brighter than bg
+        # but not driven all the way to (255,255,255).
+        r, g, b = surf.get_at((100, 100))[:3]
+        self.assertGreater(b, 60, "Stacked lights produced no visible glow.")
+        self.assertLess(min(r, g, b), 240,
+                        f"Stacked lights saturated to ({r},{g},{b}) — halo regression.")
+
 
 class TestSettingsScreenInteractive(unittest.TestCase):
     """Settings menu must respond to keyboard + mouse."""

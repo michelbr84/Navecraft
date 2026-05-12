@@ -95,6 +95,14 @@ class Navecraft:
                 self.running = False
                 continue
 
+            # Phase Y.6.4 — auto-pause when the window loses focus. This stops
+            # the gameplay loop draining oxygen/energy while the player Alt-Tabs
+            # to look something up. Toggleable via accessibility config.
+            if event.type == pygame.WINDOWFOCUSLOST and self.game_state == "playing":
+                if config.get('accessibility', 'autopause_on_focus_loss', default=True):
+                    self.game_state = "paused"
+                    continue
+
             # Common system shortcuts
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:

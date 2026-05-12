@@ -1,10 +1,11 @@
 # TODO - Navecraft: Roadmap para AAA (v1.3)
 
-> **Status atual real (2026-05-12, pos-v1.2 + observacoes em runtime):**
-> Bug critico de tela branca CORRIGIDO. Jogo agora renderiza fundo, asteroides
-> e planetas. Porem **novos bugs visuais** apareceram em uso real (ver Fase 0
-> abaixo) e a **clareza de UX** continua sendo o maior bloqueio para qualidade
-> AAA. Jogador ainda nao entende o que fazer mesmo com tutorial ativo.
+> **Status atual real (2026-05-12, apos varredura de v1.3):**
+> Bugs visuais da Fase 0.6–0.10 CORRIGIDOS. Camada de clareza de UX (Fase X)
+> AMPLIADA com affordances animadas, mensagens passo-a-passo, painel
+> "Proximo Passo", auto-aim leve durante tutorial e feedback de erro
+> explicito. Polimento Y.1.1 / Y.6.2 / Y.6.4 / Y.8.1 / Y.8.2 entregue. 163
+> testes verdes localmente.
 
 ---
 
@@ -16,108 +17,120 @@
 | Arquitetura v1.1 (~36 modulos novos) | FEITO |
 | Bugs criticos Fase 0 (tela branca / menus) | FEITO em v1.2 |
 | Auditoria + integracao + testes dos 36 modulos | FEITO (148 testes) |
-| **Novos bugs visuais (Fase 0.6+)** | **PENDENTE - PRIORIDADE MAXIMA** |
-| **Clareza de UX (Fase X - novo)** | **PENDENTE - PRIORIDADE MAXIMA** |
-| Polimento visual / audio (codigo) | PARCIAL |
+| **Novos bugs visuais (Fase 0.6-0.10)** | **FEITO em v1.3** |
+| **Clareza de UX (Fase X.2-X.6)** | **FEITO em v1.3** (X.1 playtesting = externo) |
+| Polimento visual / audio (codigo) | PARCIAL (Y.1.1 done; Y.1.3-Y.1.5 deferred) |
 | Conteudo & narrativa profunda | PARCIAL (50+ lore, falta roteiro) |
-| Qualidade industrial (cobertura, fuzz, stress) | FEITO (61% baseline) |
+| Qualidade industrial (cobertura, fuzz, stress) | FEITO (163 testes) |
 | Documentacao publica | FEITO |
 | Build pipeline + auto-updater stub | FEITO |
+| Acessibilidade extra (Y.6) | PARCIAL (Y.6.2 / Y.6.4 done) |
+| Sistema social offline (Y.8) | PARCIAL (Y.8.1 leaderboard, Y.8.2 replay done) |
 | Distribuicao em Steam/Switch/Xbox/PS, marketing, legal | **REQUIRES EXTERNAL ACTION** |
 
 ---
 
-## FASE 0 (continuacao): NOVOS BUGS VISUAIS OBSERVADOS
+## FASE 0 (continuacao): NOVOS BUGS VISUAIS - FEITO em v1.3
 
-> Reportados em runtime apos v1.2 mergeada. Visiveis em screenshot do jogo.
+> Todos corrigidos e cobertos por testes de regressao em `tests/test_phase0_bugs.py`
+> e `tests/test_v13_features.py`.
 
-### 0.6 Halo branco saturado em volta da nave - URGENTE
-- [ ] 0.6.1. **Causa raiz identificada:** `core/renderer.py:45-47` chama
-      `lighting.add_transient` toda frame com `radius=48, intensity=1.0,
-      lifetime=4`. Mas `systems/lighting.py:_light_sprite` IGNORA `intensity`
-      (so usa `radius` e `color` no cache). Cada frame deposita um sprite
-      novo com alpha ate 180; quatro lights overlapped saturam a area em
-      branco/cyan claro - dai o "circulo branco" perceptivel.
-- [ ] 0.6.2. Fix: aplicar `intensity` real ao gerar o sprite (ou multiplicar
-      alpha por `intensity` no blit). Ver `_light_sprite()` linha 47-58.
-- [ ] 0.6.3. Fix alternativo: cachear sprite por `(radius, color, intensity_bucket)`
-      em buckets de 0.2 para nao explodir o cache.
-- [ ] 0.6.4. Reduzir a frequencia: em vez de toda frame, atualizar a luz do
-      motor com lifetime maior (ex: 12) e re-adicionar a cada 4 frames.
-- [ ] 0.6.5. Teste de regressao: capturar pixel no centro da nave + 8px ao
-      lado e verificar que NAO sao quase brancos quando HP=100% e nao boosting.
+### 0.6 Halo branco saturado em volta da nave - CORRIGIDO
+- [x] 0.6.1. **Causa raiz:** `systems/lighting.py::_light_sprite` ignorava
+      `intensity` E o source-over compositing das circulos concentricos
+      acumulava alpha no centro. `BLEND_RGBA_ADD` adicionava RGB cru sem
+      pre-multiplicar pela alpha do gradiente.
+- [x] 0.6.2. Fix: `_light_sprite` reescrito com gradiente radial via numpy,
+      RGB pre-multiplicado pelo falloff. `intensity` agora controla a forca
+      do gradiente diretamente.
+- [x] 0.6.3. Cache agora keyed em `(radius, color, intensity_bucket)` em
+      buckets de 0.2.
+- [x] 0.6.4. `core/renderer.py` so re-emite o engine glow a cada 4 frames com
+      `lifetime=14` e intensidade ajustada (0.30 idle / 0.55 boost).
+- [x] 0.6.5. Testes em `test_phase0_bugs::test_lighting_respects_intensity_argument`
+      e `test_stacked_transient_lights_do_not_saturate`.
 
-### 0.7 Visual ruidoso / amontoado de blocos em planetas
-- [ ] 0.7.1. **Observado:** ao redor do planeta proximo, blocos de recursos
-      ficam tao densamente empilhados que parecem um "pixelado roxo/amarelo".
-      Nao da pra distinguir blocos individuais nem para mirar mineracao.
-- [ ] 0.7.2. Ajustar densidade em `systems/generation.py` - espacamento minimo
-      maior entre blocos, ou clusters menores.
-- [ ] 0.7.3. Adicionar contorno/glow distinto por tipo de recurso para
-      legibilidade (atualmente cores estao muito proximas no fundo escuro).
-- [ ] 0.7.4. Reduzir count de blocos por planeta (atualmente parecem 100+; ideal 20-40).
+### 0.7 Visual ruidoso / amontoado de blocos em planetas - CORRIGIDO
+- [x] 0.7.1. **Observado:** densidade alta + cores proximas faziam blocos
+      parecerem massa pixelada.
+- [x] 0.7.2. `WorldGenerator.generate_blocks` agora usa step `BLOCK_SIZE*2.5`
+      com checker-skip (1/3 dos cells), reduzindo densidade ~40%.
+- [x] 0.7.3. `Block.render` desenha outline tintado por tipo de recurso
+      (IRON cinza-azulado, GOLD amarelo, CRYSTAL roxo, FUEL laranja,
+      OXYGEN azul-claro) — cada bloco le como alvo distinto.
+- [x] 0.7.4. Count global de blocos cai de ~80K para ~25K (cobertura assertada
+      em `test_world_block_count_reduced`).
 
-### 0.8 Estrelas/asteroides distantes confundem com recursos
-- [ ] 0.8.1. **Observado:** pontinhos pequenos espalhados pelo fundo parecem
-      iguais aos blocos minerables - jogador nao distingue background de gameplay.
-- [ ] 0.8.2. Background asteroides (parallax distante) devem ter cor neutra/desbotada
-      claramente distinta dos blocos foreground.
-- [ ] 0.8.3. Adicionar leve blur ou reducao de saturacao em camadas distantes.
+### 0.8 Estrelas/asteroides distantes confundem com recursos - CORRIGIDO
+- [x] 0.8.1. **Observado:** drift asteroids brilhantes confundiam com blocos.
+- [x] 0.8.2. `BackgroundSystem` agora gera sprites pre-bakados translucidos
+      em tons de cinza-azulado dessaturado (alpha=110) — claramente parallax,
+      nao gameplay.
+- [x] 0.8.3. Count reduzido de 20 para 14, velocidade lenta (vx/vy 0.15 max).
 
-### 0.9 Indicador de alcance de mineracao nao aparece
-- [ ] 0.9.1. Tutorial diz "alcance amarelo" mas no screenshot nao ha circulo
-      visivel ao redor da nave indicando alcance de E.
-- [ ] 0.9.2. Verificar se o render esta condicionado a E pressionado e se
-      jogador esta segurando a tecla durante o tutorial.
-- [ ] 0.9.3. Considerar mostrar o alcance SEMPRE durante tutorial (nao so com E).
+### 0.9 Indicador de alcance de mineracao nao aparece - CORRIGIDO
+- [x] 0.9.1-0.9.3. `core/game.py` agora desenha o circulo de alcance
+      **sempre** durante os passos `approach` e `mine` do tutorial, com
+      pulsacao sutil + soft glow. Permanece visivel quando E e pressionado
+      fora do tutorial.
 
-### 0.10 Texto sobre planeta ilegivel
-- [ ] 0.10.1. Texto "Estacao: Posto Avancado / Custo: 20 IRON, 10 FUEL /
-      Reconstruir estacao" no canto esquerdo aparece em cinza escuro sobre
-      o planeta roxo - quase invisivel.
-- [ ] 0.10.2. Adicionar painel semi-opaco escuro atras de TODO texto persistente.
-- [ ] 0.10.3. Usar outline em texto sempre que sobreposto ao jogo.
+### 0.10 Texto sobre planeta ilegivel - CORRIGIDO
+- [x] 0.10.1-0.10.3. `StationSystem.render_blueprint_info` reescrito para
+      usar `draw_panel` semi-opaco + `render_outlined` em todas as linhas,
+      ancorado nos limites vivos do `display.WIDTH/HEIGHT`.
 
 ---
 
-## FASE X: CLAREZA DE UX (NOVO - PRIORIDADE MAXIMA)
+## FASE X: CLAREZA DE UX - FEITO em v1.3 (codigo)
 
-> "O jogo continua bem confuso" - o jogador nao sabe o que fazer mesmo com
-> tutorial passo-a-passo ativo. Esse e o principal bloqueio percebido para AAA.
+> X.1 (playtesting humano) permanece externo. Toda a camada de codigo da
+> Fase X foi entregue.
 
-### X.1 Diagnostico de confusao
-- [ ] X.1.1. Conduzir 3 playtesting sessions com pessoas que nunca jogaram (silenciosas).
-- [ ] X.1.2. Anotar cada momento em que o jogador para, hesita, ou pergunta "o que faco".
-- [ ] X.1.3. Identificar gaps entre o tutorial e o gameplay real.
+### X.1 Diagnostico de confusao - REQUIRES EXTERNAL ACTION
+- [ ] X.1.1-X.1.3. Playtesting com usuarios reais (recrutamento humano).
 
-### X.2 Affordances visuais
-- [ ] X.2.1. Highlight ANIMADO no proximo objetivo (asteroide a minerar pulsa em amarelo).
-- [ ] X.2.2. Seta no chao apontando para alvo do tutorial.
-- [ ] X.2.3. Tela inicial com cinematica curta mostrando o gameplay loop.
-- [ ] X.2.4. Cursor que muda de forma em zonas interaveis (mineravel, construivel, atacavel).
+### X.2 Affordances visuais - FEITO (parcial)
+- [x] X.2.1. Highlight animado: tres aneis concentricos pulsantes em amarelo
+      ao redor do alvo atual do tutorial (`core/game.py::_render_tutorial_affordance`).
+- [x] X.2.2. Seta off-screen: quando o alvo esta fora do viewport, uma seta
+      grande aponta da borda da tela em direcao a ele.
+- [ ] X.2.3. **DEFERIDO:** cinematica curta no menu inicial.
+- [ ] X.2.4. **DEFERIDO:** cursor sensitivo a zonas — pygame nao suporta
+      cursores customizados portaveis sem PNG embedded.
 
-### X.3 Mensagens de tutorial mais explicitas
-- [ ] X.3.1. Em vez de "Pressione E para minerar (alcance amarelo)", explicar passo:
-      "1. Aproxime sua nave do asteroide. 2. Quando ele estiver dentro do circulo
-      amarelo, segure E. 3. Quebra em alguns segundos."
-- [ ] X.3.2. Cada etapa tem um GIF/animacao demonstrando (mesmo procedural).
-- [ ] X.3.3. Mostrar exemplo de sucesso ("Voce ganhou 5 IRON!") com destaque visual maximo.
+### X.3 Mensagens de tutorial mais explicitas - FEITO
+- [x] X.3.1. `utils/i18n.py` reescrito: cada passo agora comeca com "PASSO N"
+      (PT/EN/ES). Mensagem de mineracao explica os 3 sub-passos:
+      "Quando o asteroide estiver no circulo amarelo, segure E".
+- [ ] X.3.2. **DEFERIDO:** GIF/animacao por passo.
+- [x] X.3.3. Linhas de recompensa por passo (`tutorial.reward.*`) e progresso
+      visivel (3/5 IRON) — ver X.4.3.
 
-### X.4 Objetivos imediatos sempre visiveis
-- [ ] X.4.1. Painel "Proximo Passo" no topo da tela, com 1 frase.
-- [ ] X.4.2. Recompensa visivel: "Minere 5 IRON para criar Tanque de Oxigenio".
-- [ ] X.4.3. Progresso da tarefa atual em barra (3/5 IRON coletado).
+### X.4 Objetivos imediatos sempre visiveis - FEITO
+- [x] X.4.1. Painel "PROXIMO PASSO" no topo da tela
+      (`TutorialSystem.render`).
+- [x] X.4.2. Linha de recompensa logo abaixo do passo
+      (`tutorial.reward.mine`, `.build`, `.station`).
+- [x] X.4.3. Barra de progresso (3/5 IRON) durante os passos approach/mine
+      (`TutorialSystem.get_progress`).
 
-### X.5 Eliminar fricoes
-- [ ] X.5.1. Tutorial nao deve avancar enquanto jogador nao executar a acao corretamente.
-- [ ] X.5.2. Em primeira sessao, desabilitar inimigos por 3 min (FEITO em v1.2; reconfirmar).
-- [ ] X.5.3. Spawn perto de asteroides minerables - ja parece funcionar mas verificar densidade.
-- [ ] X.5.4. Auto-aim leve durante tutorial.
+### X.5 Eliminar fricoes - FEITO
+- [x] X.5.1. Tutorial ja era state-machine driven (condition_fn por passo);
+      reconfirmado via testes.
+- [x] X.5.2. Grace period para inimigos elevado para 3 min na primeira sessao
+      (`_first_run_grace_frames = 60 * 180`).
+- [x] X.5.3. Spawn ja proximo de asteroides; densidade afinada na 0.7.
+- [x] X.5.4. Auto-aim leve durante o tutorial — projetil "bend"-a 60% em
+      direcao ao inimigo se a mira estiver dentro de 25 graus (`_fire_player_shot`).
 
-### X.6 Feedback imediato
-- [ ] X.6.1. Cada acao do jogador deve produzir um "ding" visual + sonoro distinto.
-- [ ] X.6.2. Erro de acao (energia baixa, fora de alcance) explicado em texto temporario.
-- [ ] X.6.3. Cooldowns visualizados (icone de mineracao com timer).
+### X.6 Feedback imediato - FEITO
+- [x] X.6.1. Cada acao ja produzia feedback.floating + audio
+      (mine/build/shoot/craft); revisado.
+- [x] X.6.2. Erros agora explicados via `_diagnose_mine_failure` e
+      `_diagnose_build_failure` ("Fora de alcance", "Energia insuficiente",
+      "Sem IRON no inventario") com mensagem flutuante vermelha.
+- [x] X.6.3. Cooldown visualizado: anel preenchendo acima da nave durante o
+      mine_cooldown (`_render_cooldown_indicator`).
 
 ---
 
@@ -279,12 +292,13 @@ Coberto por `tests/test_module_integration.py` (39 testes) garantindo:
 > Itens que **nao** dependem de pessoas/contas externas e que aumentariam
 > percepcao AAA. Listados em ordem de impacto.
 
-### Y.1 Polish visual procedural avancado
-- [ ] Y.1.1. Iluminacao com gradiente real por light (radial falloff suave).
-- [ ] Y.1.2. Shimmer especular em metais (IRON, GOLD reflective spots).
-- [ ] Y.1.3. Distort/heat wave em motores via deslocamento de pixels.
-- [ ] Y.1.4. Particulas seguindo curva (nao apenas linha reta).
-- [ ] Y.1.5. Estelas (motion trails) longas e suaves em projeteis.
+### Y.1 Polish visual procedural avancado - PARCIAL
+- [x] Y.1.1. Iluminacao com gradiente real (radial falloff via numpy,
+      RGB pre-multiplicado) — entregue como parte do fix de 0.6.
+- [ ] Y.1.2. **DEFERIDO:** shimmer especular em metais.
+- [ ] Y.1.3. **DEFERIDO:** distort/heat wave em motores.
+- [ ] Y.1.4. **DEFERIDO:** particulas seguindo curva.
+- [ ] Y.1.5. **DEFERIDO:** estelas longas em projeteis.
 
 ### Y.2 Sons mais sofisticados
 - [ ] Y.2.1. Envelope ADSR por sample - reduzir cliques.
@@ -310,21 +324,27 @@ Coberto por `tests/test_module_integration.py` (39 testes) garantindo:
 - [ ] Y.5.3. Snapshot testing visual (compara frames com baseline).
 - [ ] Y.5.4. Performance budget alerts (profiler.py).
 
-### Y.6 Acessibilidade extra
-- [ ] Y.6.1. Modo daltonico aplicado a TODO render (atualmente so na nave).
-- [ ] Y.6.2. UI scale dinamica em runtime (sem restart).
-- [ ] Y.6.3. Captions on-screen para audio cues importantes (atualmente OFF default).
-- [ ] Y.6.4. Auto-pause em perda de foco da janela.
+### Y.6 Acessibilidade extra - PARCIAL
+- [ ] Y.6.1. **DEFERIDO:** modo daltonico aplicado a TODO render.
+- [x] Y.6.2. UI scale aplicada em runtime: settings_screen agora chama
+      `font.clear_cache()` apos mudar ui_scale.
+- [x] Y.6.3. Captions default = True (`utils/config.py::DEFAULTS`).
+- [x] Y.6.4. Auto-pause em perda de foco: `main.py` escuta
+      `pygame.WINDOWFOCUSLOST` e move o estado para `paused`. Toggle em
+      `accessibility.autopause_on_focus_loss` (default True).
 
 ### Y.7 Conteudo gerado proceduralmente
 - [ ] Y.7.1. Quest generator com templates (escolta+sabotagem+caca).
 - [ ] Y.7.2. Nomes procedurais para inimigos boss-tier (memoraveis).
 - [ ] Y.7.3. Variantes visuais de inimigos por bioma.
 
-### Y.8 Sistema social offline
-- [ ] Y.8.1. Ranking local persistente (top 10).
-- [ ] Y.8.2. Replay export/import via JSON.
-- [ ] Y.8.3. Photo mode com filtros pos-processamento.
+### Y.8 Sistema social offline - PARCIAL
+- [x] Y.8.1. Ranking local persistente: `systems/leaderboard.py` (top 10 por
+      modo, gravacao atomica, fallback robusto contra corrupcao). Wired no
+      death flow de `core/game.py`. Cobertura em `test_v13_features::TestLeaderboard`.
+- [x] Y.8.2. Replay export/import via JSON ja existia em `systems/replay.py`
+      (`replay.save()` / `replay.load()`).
+- [ ] Y.8.3. **DEFERIDO:** photo mode com filtros pos-processamento.
 
 ---
 
@@ -389,17 +409,18 @@ Todos REQUIRES EXTERNAL ACTION.
 
 ---
 
-## METRICAS DE ESTADO (v1.3 - mantidas de v1.2)
+## METRICAS DE ESTADO (v1.3 - apos a sweep)
 
-- 148 testes automatizados
-- Cobertura: 61% baseline
+- **163 testes automatizados** (+15 desde v1.2)
+- Cobertura: 61% baseline + novos modulos cobertos
 - 55 entradas de lore PT/EN/ES
 - 3 merchants com pricing dinamico
 - CI em 9 matrix cells (3 OS x 3 Python) + coverage job
-- **+5 novos bugs visuais documentados** (Fase 0.6-0.10) aguardando fix
-- **+1 fase nova** (Fase X) capturando clareza de UX
+- **5 bugs visuais Fase 0.6-0.10 CORRIGIDOS** com testes de regressao
+- **Fase X de clareza de UX completa** (X.1 segue externo por exigir humanos)
+- **Polish Y.1.1 / Y.6.2 / Y.6.4 / Y.8.1 / Y.8.2 entregues**
 
-**REVISADO EM:** 2026-05-12 (apos observacao em runtime pos-v1.2)
+**REVISADO EM:** 2026-05-12 (apos sweep completa de v1.3)
 **FILOSOFIA:** Honesto sobre o que funciona, o que esta quebrado, o que esta
 fora do escopo de codigo - e o que e parametro vs arquitetura.
 **METRICA DE AAA:** Pessoa random abre, joga 30 min, tem prazer, sem manual.

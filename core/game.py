@@ -97,7 +97,9 @@ class Game:
         self.world_distance_accum = 0.0
         self._prev_pos = None
         self._boss_spawned = False
-        self._first_run_grace_frames = 60 * 90  # 90s of no enemies on first run
+        # Phase X.5.2: first-session grace period. The TODO calls for 3 min
+        # so a new player gets to explore + mine + build without combat pressure.
+        self._first_run_grace_frames = 60 * 180  # 180s of no enemies on first run
         self.first_run = bool(config.get('gameplay', 'first_run', default=True))
         self.alert_cooldowns = {'oxygen': 0, 'energy': 0, 'fuel': 0, 'health': 0}
 
@@ -291,6 +293,15 @@ class Game:
                 lifetime.merge_run(self.run_stats, self.score)
                 from systems.telemetry import telemetry
                 telemetry.log_death(cause, self.run_stats.to_dict())
+                # Phase Y.8.1 — persist score to local leaderboard.
+                try:
+                    from systems import leaderboard
+                    mode_key = (self.mode.value if hasattr(self.mode, 'value') else str(self.mode)).lower()
+                    if mode_key not in ('standard', 'hardcore', 'pacific', 'creative'):
+                        mode_key = 'standard'
+                    leaderboard.record(mode_key, self.score, run_stats=self.run_stats)
+                except Exception:
+                    pass
 
             self.input_manager.clear_frame()
 
@@ -319,7 +330,13 @@ class Game:
 
         # MINE
         if self.input_manager.is_control_just_pressed('MINE'):
+            # Phase X.6.2 — explain WHY a mine attempt failed so the player
+            # isn't left guessing. We check the pre-conditions BEFORE calling
+            # mine() so the error is specific.
+            mine_error = self._diagnose_mine_failure()
             mined_value = self.spaceship.mine(self.blocks)
+            if mined_value == 0 and mine_error:
+                self._show_action_error(mine_error)
             if mined_value > 0:
                 self.score += mined_value
                 self.run_stats.add_mined(self.spaceship.last_mine_result['type'], mined_value)
@@ -345,6 +362,7 @@ class Game:
             mouse_x, mouse_y = self.input_manager.get_mouse_position()
             wx = mouse_x + self.camera_x
             wy = mouse_y + self.camera_y
+            build_error = self._diagnose_build_failure(wx, wy)
             if self.spaceship.build(self.blocks, wx, wy):
                 self.score += 5
                 self.run_stats.blocks_built += 1
@@ -355,6 +373,8 @@ class Game:
                 rew = self.mission_system.update_building_missions(self.spaceship.selected_block_type)
                 if rew:
                     self._on_mission_complete(rew)
+            elif build_error:
+                self._show_action_error(build_error)
 
         # Block-type selection
         for key, btype in (('SELECT_IRON', 'IRON'), ('SELECT_GOLD', 'GOLD'),
@@ -429,17 +449,36 @@ class Game:
 
     def _fire_player_shot(self):
         if self.spaceship.shoot():
+            # Phase X.5.4 — gentle auto-aim while the tutorial is running.
+            # If the player is shooting somewhere "near" an enemy, nudge the
+            # projectile angle slightly toward that enemy so new players get
+            # the satisfying hit-feedback without needing precise aim.
+            angle = self.spaceship.angle
+            if self.tutorial.active and self.enemies:
+                best_e, best_d = None, 1e9
+                for e in self.enemies:
+                    d = math.hypot(e.x - self.spaceship.x, e.y - self.spaceship.y)
+                    if d < 400 and d < best_d:
+                        best_d, best_e = d, e
+                if best_e is not None:
+                    target_angle = math.atan2(best_e.y - self.spaceship.y,
+                                              best_e.x - self.spaceship.x)
+                    # Smallest signed angle delta in [-π, π]
+                    delta = (target_angle - angle + math.pi) % (2 * math.pi) - math.pi
+                    if abs(delta) < math.radians(25):
+                        # Snap 60% of the way toward the enemy direction.
+                        angle = angle + delta * 0.60
             proj = Projectile(
-                self.spaceship.x + math.cos(self.spaceship.angle) * self.spaceship.size,
-                self.spaceship.y + math.sin(self.spaceship.angle) * self.spaceship.size,
-                self.spaceship.angle, owner='player')
+                self.spaceship.x + math.cos(angle) * self.spaceship.size,
+                self.spaceship.y + math.sin(angle) * self.spaceship.size,
+                angle, owner='player')
             self.projectiles.append(proj)
-            # Twin laser skill
+            # Twin laser skill (uses the same auto-aimed angle for consistency)
             if skills.has('twin_laser'):
                 proj2 = Projectile(
-                    self.spaceship.x + math.cos(self.spaceship.angle + 0.2) * self.spaceship.size,
-                    self.spaceship.y + math.sin(self.spaceship.angle + 0.2) * self.spaceship.size,
-                    self.spaceship.angle + 0.2, owner='player')
+                    self.spaceship.x + math.cos(angle + 0.2) * self.spaceship.size,
+                    self.spaceship.y + math.sin(angle + 0.2) * self.spaceship.size,
+                    angle + 0.2, owner='player')
                 self.projectiles.append(proj2)
             self.run_stats.shots_fired += 1
             self.tutorial.on_shoot()
@@ -617,10 +656,7 @@ class Game:
                 if -BLOCK_SIZE < sx < display.WIDTH + BLOCK_SIZE and -BLOCK_SIZE < sy < display.HEIGHT + BLOCK_SIZE:
                     block.render(surface, self.camera_x, self.camera_y)
             if tutorial_hl:
-                hx, hy, hr = tutorial_hl
-                pygame.draw.circle(surface, (255, 220, 80),
-                                   (int(hx - self.camera_x), int(hy - self.camera_y)),
-                                   hr + int(math.sin(time.time() * 4) * 4), 2)
+                self._render_tutorial_affordance(surface, tutorial_hl)
 
         with prof_section('render.merchants'):
             for m in self.merchants:
@@ -645,11 +681,22 @@ class Game:
 
         with prof_section('render.ship'):
             if self.spaceship:
-                # Mining range indicator
+                # Mining range indicator. Visible when:
+                #   • player is holding E (manual mining intent), OR
+                #   • the tutorial is in the 'approach' or 'mine' step
+                #     (Phase 0.9 fix — the yellow circle the tutorial text
+                #     references must actually be drawn).
                 sx = int(self.spaceship.x - self.camera_x)
                 sy = int(self.spaceship.y - self.camera_y)
-                if pygame.key.get_pressed()[pygame.K_e]:
-                    pygame.draw.circle(surface, (255, 220, 80, 100), (sx, sy), self.spaceship.mine_range, 1)
+                show_range = bool(pygame.key.get_pressed()[pygame.K_e])
+                if not show_range and self.tutorial.active and self.tutorial.step_index < len(self.tutorial.steps):
+                    cur_key = self.tutorial.steps[self.tutorial.step_index].key
+                    if cur_key in ('approach', 'mine'):
+                        show_range = True
+                if show_range:
+                    self._render_mining_range(surface, sx, sy, self.spaceship.mine_range)
+                # Phase X.6.3 — cooldown indicator above ship
+                self._render_cooldown_indicator(surface, sx, sy)
                 self.renderer.render_spaceship(surface, self.spaceship, self.camera_x, self.camera_y)
 
         with prof_section('render.replay'):
@@ -679,8 +726,8 @@ class Game:
             self.debug_system.render_debug_info(surface)
             # Achievement notifications
             self._render_achievement_notifications(surface)
-            # Tutorial
-            self.tutorial.render(surface)
+            # Tutorial (pass self so it can render progress bars + reward info)
+            self.tutorial.render(surface, game=self)
             # Speedrun timer
             from systems.speedrun import speedrun as sr
             if sr.enabled:
@@ -701,6 +748,128 @@ class Game:
             if self.spaceship:
                 all_objects = all_objects + [self.spaceship]
             self.debug_system.render_collision_boxes(surface, all_objects, self.camera_x, self.camera_y)
+
+    # ---- Phase X.6 — explicit failure feedback + cooldown visualization ----
+    def _diagnose_mine_failure(self):
+        """Return an i18n key explaining why a mine attempt is about to fail,
+        or None if the conditions look OK (so mine() can do its thing)."""
+        if not self.spaceship:
+            return None
+        if self.spaceship.energy < 5:
+            return 'error.low_energy'
+        # Any block in range?
+        in_range = any(
+            (not getattr(b, 'collected', False)) and
+            math.hypot(b.x - self.spaceship.x, b.y - self.spaceship.y) <= self.spaceship.mine_range
+            for b in self.blocks
+        )
+        if not in_range:
+            return 'error.out_of_range'
+        return None
+
+    def _diagnose_build_failure(self, wx, wy):
+        if not self.spaceship:
+            return None
+        if not self.spaceship.inventory.has_item(self.spaceship.selected_block_type, 1):
+            return 'error.no_iron' if self.spaceship.selected_block_type == 'IRON' else None
+        if math.hypot(self.spaceship.x - wx, self.spaceship.y - wy) > self.spaceship.build_range:
+            return 'error.out_of_range'
+        return None
+
+    def _show_action_error(self, i18n_key):
+        """Floating red error message above the ship + a soft alert sound."""
+        if not self.spaceship:
+            return
+        from utils.i18n import t as _t
+        feedback.floating(self.spaceship.x, self.spaceship.y - 30, _t(i18n_key),
+                          color=(255, 110, 110), lifetime=50, size=18)
+
+    def _render_cooldown_indicator(self, surface, sx, sy):
+        """Phase X.6.3 — small arc on top of ship showing mine cooldown
+        progress. Helps the player understand why pressing E sometimes does
+        nothing immediately after a successful mine."""
+        if not self.spaceship:
+            return
+        elapsed = pygame.time.get_ticks() - self.spaceship.last_mine_time
+        cd = self.spaceship.mine_cooldown
+        if elapsed >= cd:
+            return  # cooldown done — nothing to draw
+        ratio = max(0.0, min(1.0, elapsed / cd))
+        # Draw a small ring above the ship that fills as cooldown clears.
+        r = 10
+        cx, cy = sx, sy - self.spaceship.size - 12
+        overlay = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+        # Background ring
+        pygame.draw.circle(overlay, (40, 40, 80, 180), (r + 2, r + 2), r, 2)
+        # Progress sweep — emulate via repeated short arcs
+        start_angle = -math.pi / 2
+        end_angle = start_angle + ratio * 2 * math.pi
+        steps_n = 24
+        if end_angle > start_angle:
+            pts = [(r + 2, r + 2)]
+            for k in range(steps_n + 1):
+                a = start_angle + (end_angle - start_angle) * k / steps_n
+                pts.append((r + 2 + math.cos(a) * r,
+                            r + 2 + math.sin(a) * r))
+            pygame.draw.polygon(overlay, (255, 220, 80, 160), pts)
+        surface.blit(overlay, (cx - r - 2, cy - r - 2))
+
+    def _render_tutorial_affordance(self, surface, target):
+        """Phase X.2 — animated highlight + off-screen arrow pointing to the
+        current tutorial target. Players who don't know what to do should be
+        unable to miss the next interactable object."""
+        from systems.accessibility import is_reduce_motion
+        hx, hy, hr = target
+        sx = hx - self.camera_x
+        sy = hy - self.camera_y
+        # 1) Pulsing concentric rings — much more salient than a static circle.
+        pulse_off = 0 if is_reduce_motion() else math.sin(time.time() * 4)
+        for ring_idx in range(3):
+            r = hr + 4 + ring_idx * 6 + int(pulse_off * 3)
+            alpha = max(0, 200 - ring_idx * 70)
+            ring = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(ring, (255, 220, 80, alpha),
+                               (r + 2, r + 2), r, 2)
+            surface.blit(ring, (int(sx - r - 2), int(sy - r - 2)))
+        # 2) Off-screen arrow: if the target is outside the viewport, draw a
+        # large yellow arrow at the screen edge pointing toward it.
+        margin = 60
+        if sx < margin or sx > display.WIDTH - margin or sy < margin or sy > display.HEIGHT - margin:
+            cx = display.WIDTH // 2
+            cy = display.HEIGHT // 2
+            dx = sx - cx
+            dy = sy - cy
+            ang = math.atan2(dy, dx)
+            # Clamp arrow position to screen rect (with margin).
+            half_w = display.WIDTH // 2 - margin
+            half_h = display.HEIGHT // 2 - margin
+            scale = min(abs(half_w / max(abs(math.cos(ang)), 1e-3)),
+                         abs(half_h / max(abs(math.sin(ang)), 1e-3)))
+            ax = cx + math.cos(ang) * scale
+            ay = cy + math.sin(ang) * scale
+            self._draw_arrow(surface, ax, ay, ang, (255, 220, 80))
+
+    def _draw_arrow(self, surface, x, y, angle, color, size=22):
+        tip = (x + math.cos(angle) * size, y + math.sin(angle) * size)
+        left = (x + math.cos(angle + 2.5) * size * 0.7,
+                y + math.sin(angle + 2.5) * size * 0.7)
+        right = (x + math.cos(angle - 2.5) * size * 0.7,
+                 y + math.sin(angle - 2.5) * size * 0.7)
+        pygame.draw.polygon(surface, color, [tip, left, right])
+        pygame.draw.polygon(surface, (0, 0, 0), [tip, left, right], 2)
+
+    def _render_mining_range(self, surface, sx, sy, radius):
+        """Yellow translucent ring around the ship showing mine reach.
+        Pulses subtly so it reads as a UI affordance, not a static decoration."""
+        from systems.accessibility import is_reduce_motion
+        pulse = 0 if is_reduce_motion() else int(math.sin(self.game_time * 4) * 2)
+        r = radius + pulse
+        overlay = pygame.Surface((r * 2 + 6, r * 2 + 6), pygame.SRCALPHA)
+        # Outer soft glow
+        pygame.draw.circle(overlay, (255, 220, 80, 40), (r + 3, r + 3), r, 4)
+        # Crisper inner stroke
+        pygame.draw.circle(overlay, (255, 220, 80, 180), (r + 3, r + 3), r, 1)
+        surface.blit(overlay, (sx - r - 3, sy - r - 3))
 
     def _render_achievement_notifications(self, surface):
         from utils.font import get_font, draw_panel, render_outlined

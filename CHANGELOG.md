@@ -6,7 +6,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+### Added — v1.3 sweep
+- Phase 0.6–0.10 fixes for runtime-observed visual bugs (white halo around
+  ship, packed-block readability, parallax/foreground confusion, missing
+  mining-range indicator, illegible station HUD over planets).
+- Phase X UX clarity: animated tutorial highlight + off-screen arrow,
+  rewritten step-by-step tutorial strings (PT/EN/ES), top-of-screen "PRÓXIMO
+  PASSO" panel with reward + progress bar, gentle auto-aim during tutorial,
+  cooldown ring above the ship, error feedback ("Fora de alcance", "Energia
+  insuficiente", "Sem IRON").
+- `systems/leaderboard.py`: local persistent top-10 per game mode with
+  crash-safe atomic write.
+- Auto-pause on window focus loss (toggleable in accessibility settings).
+- Live UI scale: changing it in settings clears the font cache immediately.
+- `tests/test_v13_features.py` covering all of the above (13 new tests).
+
+### Added — v1.2
 - Phase 0 / 1 regression tests covering all 36 v1.1 modules (`tests/test_phase0_bugs.py`, `tests/test_module_integration.py`).
 - Save-file fuzz tests, property tests for inventory math, stress test for
   spatial hash, full-game frame budget test, visual smoke test, UI render
@@ -23,7 +38,24 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Auto-updater stub (`utils/auto_updater.py`) checking `latest.json`.
 - Semver release helper (`scripts/release.py`).
 
-### Changed
+### Changed — v1.3 sweep
+- `systems/lighting.py`: `_light_sprite` rewritten as a true radial gradient
+  via numpy with RGB pre-multiplied by the falloff, fixing the saturated
+  white halo around the ship (`BLEND_RGBA_ADD` ignores per-pixel source
+  alpha, so the gradient had to be baked into RGB). Cache keyed on
+  (radius, color, intensity-bucket).
+- `core/renderer.py`: engine glow only re-emits every 4 frames with
+  `lifetime=14` and dimmer base intensity, preventing stacking saturation.
+- `systems/generation.py`: block placement uses `BLOCK_SIZE*2.5` step + a
+  3-cell checker skip → ~40% fewer blocks, cleaner read at gameplay zoom.
+  `Block.render` now draws a per-resource-type outline color.
+- `systems/background.py`: drift asteroids pre-baked as translucent
+  desaturated sprites (count 20→14, vx/vy capped at ±0.15).
+- `systems/stations.py`: `render_blueprint_info` uses `draw_panel` +
+  `render_outlined`, reads live `display.WIDTH/HEIGHT`.
+- `systems/tutorial.py`: enemy highlight target, progress bar, reward line.
+
+### Changed — v1.2
 - `systems/lighting.py`: removed the pre-fill that painted the whole screen
   white with `BLEND_RGBA_ADD`. Ambient < 1.0 now darkens multiplicatively.
 - `ui/settings_screen.py`: UP/DOWN consume events; ENTER/SPACE/click work

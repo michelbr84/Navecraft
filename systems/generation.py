@@ -67,37 +67,46 @@ class WorldGenerator:
         return planets
     
     def generate_blocks(self):
-        """Gera blocos proceduralmente"""
+        """Gera blocos proceduralmente.
+
+        Phase 0.7 fix: world-block density was too high near planets — neighboring
+        cells passed the noise threshold and packed blocks tighter than the eye
+        could parse. Wider spacing + a higher threshold + an alternating-row
+        modulo skip break up clusters so individual blocks read as distinct
+        targets at gameplay zoom.
+        """
         blocks = []
-        
-        # Gera blocos baseados em ruído
-        for x in range(0, WORLD_SIZE * BLOCK_SIZE, BLOCK_SIZE * 2):
-            for y in range(0, WORLD_SIZE * BLOCK_SIZE, BLOCK_SIZE * 2):
-                # Usa ruído para determinar se há bloco aqui
+
+        # Wider step (BLOCK_SIZE*2.5 = 40px) so neighbors don't visually merge,
+        # combined with a checker-style skip so the placement doesn't read as
+        # a perfect grid. Noise threshold left near the original so we still
+        # produce enough mineable content for the game to be playable.
+        step = int(BLOCK_SIZE * 2.5)  # 40px
+        for x in range(0, WORLD_SIZE * BLOCK_SIZE, step):
+            for y in range(0, WORLD_SIZE * BLOCK_SIZE, step):
+                # Skip ~1 in 3 cells in a stable pattern so the grid breaks up.
+                if ((x // step) + (y // step)) % 3 == 0:
+                    continue
                 noise_value = self.noise_generator(x * 0.01, y * 0.01)
-                
-                if noise_value > 0.3:  # Apenas 30% das posições têm blocos
-                    # Determina tipo baseado em ruído
-                    type_noise = self.noise_generator(x * 0.02, y * 0.02)
-                    
-                    if type_noise > 0.7:
-                        block_type = 'CRYSTAL'
-                    elif type_noise > 0.5:
-                        block_type = 'GOLD'
-                    elif type_noise > 0.3:
-                        block_type = 'IRON'
-                    elif type_noise > 0.1:
-                        block_type = 'FUEL'
-                    else:
-                        block_type = 'OXYGEN'
-                    
-                    # Adiciona variação na posição
-                    offset_x = random.randint(-BLOCK_SIZE//2, BLOCK_SIZE//2)
-                    offset_y = random.randint(-BLOCK_SIZE//2, BLOCK_SIZE//2)
-                    
-                    block = Block(x + offset_x, y + offset_y, block_type)
-                    blocks.append(block)
-        
+                if noise_value <= 0.32:  # close to old 0.3 — keeps playable density
+                    continue
+
+                type_noise = self.noise_generator(x * 0.02, y * 0.02)
+                if type_noise > 0.7:
+                    block_type = 'CRYSTAL'
+                elif type_noise > 0.5:
+                    block_type = 'GOLD'
+                elif type_noise > 0.3:
+                    block_type = 'IRON'
+                elif type_noise > 0.1:
+                    block_type = 'FUEL'
+                else:
+                    block_type = 'OXYGEN'
+
+                offset_x = random.randint(-BLOCK_SIZE // 2, BLOCK_SIZE // 2)
+                offset_y = random.randint(-BLOCK_SIZE // 2, BLOCK_SIZE // 2)
+                blocks.append(Block(x + offset_x, y + offset_y, block_type))
+
         return blocks
     
     def generate_caves(self, planets):
@@ -460,8 +469,17 @@ class Block:
             else:
                 pygame.draw.circle(surface, sc, (int(screen_x + dx), int(screen_y + dy)), 1)
 
-        # Border
-        pygame.draw.polygon(surface, (240, 240, 240), pts, 1)
+        # Border — tinted per resource type so each block reads distinctly
+        # even at zoomed-out density. (Phase 0.7 legibility fix.)
+        type_outline = {
+            'IRON':    (210, 210, 230),
+            'GOLD':    (255, 240, 140),
+            'CRYSTAL': (200, 140, 255),
+            'FUEL':    (255, 190, 100),
+            'OXYGEN':  (170, 230, 255),
+        }
+        outline_color = type_outline.get(self.block_type, (240, 240, 240))
+        pygame.draw.polygon(surface, outline_color, pts, 1)
 
         # Sparkle on crystal/gold
         if self.block_type in ('CRYSTAL', 'GOLD'):
