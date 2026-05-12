@@ -3,6 +3,7 @@ Simple 2D lighting - radial point lights composited as additive surfaces.
 Ship engine, laser projectiles, explosions add light. Cheap; one per source.
 """
 
+import numpy as np
 import pygame
 from utils import display
 from systems.accessibility import is_reduce_motion
@@ -44,17 +45,45 @@ class LightingSystem:
                 if l.lifetime <= 0 or l.intensity < 0.05:
                     self.lights.remove(l)
 
-    def _light_sprite(self, radius, color):
-        key = (radius, color)
+    def _light_sprite(self, radius, color, intensity=1.0):
+        """Build a translucent radial-gradient light sprite.
+
+        Phase 0.6 fix: previous implementation stamped 8–12 concentric circles
+        with descending alpha onto an SRCALPHA surface. Pygame's draw uses
+        source-over compositing on SRCALPHA, so each inner circle ADDED alpha
+        on top of the outer ones, leaving the center near-opaque and producing
+        a saturated white halo after additive blit. We now build a true radial
+        gradient with numpy so center alpha == peak_alpha exactly, falling off
+        quadratically to zero at the radius. Cache keyed on (radius, color,
+        bucketed intensity) to keep memory bounded.
+        """
+        ibucket = max(0.0, min(1.0, round(intensity * 5) / 5.0))
+        key = (radius, color, ibucket)
         if key in self._sprite_cache:
             return self._sprite_cache[key]
-        size = radius * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        steps = 8
-        for i in range(steps):
-            r = int(radius * (1 - i / steps))
-            alpha = int(180 * (1 - i / steps) ** 1.5)
-            pygame.draw.circle(surf, (*color, alpha), (radius, radius), r)
+        size = max(2, radius * 2)
+        peak_alpha = 180 * ibucket  # 0..180 — controls the gradient strength
+
+        # Build a quadratic radial falloff in [0, 1].
+        y, x = np.ogrid[0:size, 0:size]
+        d = np.sqrt((x - radius) ** 2 + (y - radius) ** 2)
+        falloff = np.clip(1.0 - d / max(radius, 1), 0.0, 1.0) ** 2  # (size, size) float
+
+        # CRITICAL: pygame's BLEND_RGBA_ADD ignores per-pixel source alpha and
+        # adds source RGB directly. So we must PREMULTIPLY the gradient into
+        # the RGB channels — otherwise every pixel of the sprite would dump
+        # the full base color onto dst and a half-dozen stacked lights would
+        # saturate the screen white. (This is the actual Phase 0.6 root cause.)
+        contribution = falloff * (peak_alpha / 255.0)  # 0..ibucket effective gain
+        r_arr = (color[0] * contribution).astype(np.uint8)
+        g_arr = (color[1] * contribution).astype(np.uint8)
+        b_arr = (color[2] * contribution).astype(np.uint8)
+
+        # Compose RGBA buffer. numpy axes are (y, x); pygame.image.frombuffer
+        # expects row-major (height, width, channels) data, then a (w, h) size.
+        rgba = np.stack([r_arr, g_arr, b_arr,
+                         (falloff * peak_alpha).astype(np.uint8)], axis=-1)
+        surf = pygame.image.frombuffer(rgba.tobytes(), (size, size), 'RGBA').convert_alpha()
         self._sprite_cache[key] = surf
         return surf
 
@@ -85,7 +114,7 @@ class LightingSystem:
                 continue
             if sx > w or sy > h:
                 continue
-            sprite = self._light_sprite(l.radius, l.color)
+            sprite = self._light_sprite(l.radius, l.color, l.intensity)
             light_buf.blit(sprite, (sx, sy), special_flags=pygame.BLEND_RGBA_ADD)
         surface.blit(light_buf, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 

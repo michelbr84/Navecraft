@@ -131,22 +131,42 @@ class StationSystem:
                 spaceship.mine_range = max(spaceship.mine_range, 80)
 
     def render_blueprint_info(self, surface):
-        """Renderiza info da estacao selecionada no HUD"""
+        """Renderiza info da estacao selecionada no HUD.
+
+        Phase 0.10 fix: previous version drew grey text directly onto the
+        scene, which became invisible over bright planets. Now uses a
+        semi-opaque panel + outlined text and reads from live display dims.
+        """
+        from utils import display
+        from utils.font import get_font, render_outlined, draw_panel
+
         name, bp = self.get_selected_blueprint()
-        font = pygame.font.Font(None, 20)
-
-        x = SCREEN_WIDTH - 250
-        y = SCREEN_HEIGHT - 100
-
-        title = font.render(f"Estacao: {bp['name']}", True, CYAN)
-        surface.blit(title, (x, y))
+        font = get_font(20)
 
         cost_parts = [f"{qty} {t}" for t, qty in bp['cost'].items()]
-        cost_text = font.render("Custo: " + ", ".join(cost_parts), True, LIGHT_GRAY)
-        surface.blit(cost_text, (x, y + 20))
+        title_str   = f"Estacao: {bp['name']}"
+        cost_str    = "Custo: " + ", ".join(cost_parts)
+        benefit_str = bp['benefit']
+        hint_str    = "B=construir estacao"
 
-        benefit_text = font.render(bp['benefit'], True, LIGHT_GRAY)
-        surface.blit(benefit_text, (x, y + 40))
+        title_surf   = render_outlined(font, title_str,   CYAN,        (0, 0, 0), 2)
+        cost_surf    = render_outlined(font, cost_str,    LIGHT_GRAY,  (0, 0, 0), 2)
+        benefit_surf = render_outlined(font, benefit_str, LIGHT_GRAY,  (0, 0, 0), 2)
+        hint_surf    = render_outlined(font, hint_str,    (200, 200, 200), (0, 0, 0), 2)
 
-        hint = font.render("B=construir estacao", True, GRAY)
-        surface.blit(hint, (x, y + 60))
+        line_h = title_surf.get_height() + 2
+        panel_w = max(title_surf.get_width(), cost_surf.get_width(),
+                      benefit_surf.get_width(), hint_surf.get_width()) + 24
+        panel_h = line_h * 4 + 14
+
+        x = display.WIDTH - panel_w - 16
+        y = display.HEIGHT - panel_h - 16
+        rect = pygame.Rect(x, y, panel_w, panel_h)
+        draw_panel(surface, rect, bg=(8, 12, 28), border=(40, 80, 120),
+                   bg_alpha=210, border_width=1, radius=6)
+
+        ty = y + 8
+        surface.blit(title_surf,   (x + 12, ty));            ty += line_h
+        surface.blit(cost_surf,    (x + 12, ty));            ty += line_h
+        surface.blit(benefit_surf, (x + 12, ty));            ty += line_h
+        surface.blit(hint_surf,    (x + 12, ty))

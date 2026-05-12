@@ -39,6 +39,8 @@ DEFAULTS = {
         'reduce_motion': False,
         'captions': True,
         'high_contrast': False,
+        # Phase Y.6.4 — pause automatically when the window loses focus.
+        'autopause_on_focus_loss': True,
     },
     'i18n': {
         'language': 'auto',

@@ -46,15 +46,27 @@ class BackgroundSystem:
                 'color': rng.choice([(220, 140, 80), (80, 100, 200), (180, 200, 220)]),
             })
 
-        # Distant asteroids drifting in deep background
+        # Distant asteroids drifting in deep background.
+        # Phase 0.8 fix: small bright dots in the background were being mistaken
+        # for mineable foreground blocks. Make them larger but DESATURATED so
+        # they read as parallax fog, not interactive content. Each gets a
+        # pre-baked translucent disc instead of a hard-edged circle.
         self.drift_asteroids = []
-        for _ in range(20):
+        for _ in range(14):  # was 20 — fewer is calmer
+            r = rng.randint(3, 6)
+            # Desaturated mid-blue: near-grey luma keeps it well below the
+            # vibrancy of any foreground mineable block.
+            base = rng.choice([(70, 72, 90), (60, 65, 78), (78, 75, 95)])
+            sprite = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(sprite, (*base, 110),
+                               (r + 2, r + 2), r)
             self.drift_asteroids.append({
                 'x': rng.uniform(0, 3000),
                 'y': rng.uniform(0, 3000),
-                'vx': rng.uniform(-0.2, 0.2),
-                'vy': rng.uniform(-0.2, 0.2),
-                'r': rng.randint(2, 5),
+                'vx': rng.uniform(-0.15, 0.15),
+                'vy': rng.uniform(-0.15, 0.15),
+                'r': r,
+                'sprite': sprite,
             })
         self.aurora_phase = 0.0
         self.aurora_chance = 0.0005
@@ -107,11 +119,16 @@ class BackgroundSystem:
             ny = (n['y'] - camera_y * 0.08) % 4000
             surface.blit(n['surface'], (int(nx - n['radius']), int(ny - n['radius'])))
 
-        # Drift asteroids
+        # Drift asteroids — translucent, desaturated sprites so they don't
+        # get confused with foreground mineable blocks. (Phase 0.8 fix.)
         for ast in self.drift_asteroids:
             ax = (ast['x'] - camera_x * 0.12) % 3000
             ay = (ast['y'] - camera_y * 0.12) % 3000
-            pygame.draw.circle(surface, (90, 90, 110), (int(ax), int(ay)), ast['r'])
+            sprite = ast.get('sprite')
+            if sprite is not None:
+                surface.blit(sprite, (int(ax - ast['r'] - 2), int(ay - ast['r'] - 2)))
+            else:
+                pygame.draw.circle(surface, (70, 72, 90), (int(ax), int(ay)), ast['r'])
 
         # Star layers (true parallax)
         for layer in self.layers:

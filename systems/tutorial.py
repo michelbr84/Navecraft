@@ -26,10 +26,10 @@ class TutorialSystem:
         self.steps = [
             TutorialStep('move', self._cond_moved, 'tutorial.move'),
             TutorialStep('approach', self._cond_near_block, 'tutorial.approach', highlight='block'),
-            TutorialStep('mine', self._cond_mined, 'tutorial.mine'),
+            TutorialStep('mine', self._cond_mined, 'tutorial.mine', highlight='block'),
             TutorialStep('collected', self._cond_has_iron, 'tutorial.collected'),
             TutorialStep('select', self._cond_built, 'tutorial.select'),
-            TutorialStep('fight', self._cond_shot, 'tutorial.fight'),
+            TutorialStep('fight', self._cond_shot, 'tutorial.fight', highlight='enemy'),
             TutorialStep('station', self._cond_station, 'tutorial.station'),
         ]
         self._moved = False
@@ -128,23 +128,100 @@ class TutorialSystem:
                     best = b
             if best:
                 return (best.x, best.y, 22)
+        elif step.highlight == 'enemy' and game.spaceship and game.enemies:
+            best = None
+            best_d = 1e9
+            for e in game.enemies:
+                d = math.hypot(e.x - game.spaceship.x, e.y - game.spaceship.y)
+                if d < best_d:
+                    best_d = d
+                    best = e
+            if best:
+                return (best.x, best.y, getattr(best, 'size', 18) + 6)
         return None
 
-    def render(self, surface):
+    def _reward_key_for_step(self, step_key):
+        """Map current tutorial step to a reward i18n key (or None)."""
+        return {
+            'approach':  'tutorial.reward.mine',
+            'mine':      'tutorial.reward.mine',
+            'select':    'tutorial.reward.build',
+            'station':   'tutorial.reward.station',
+        }.get(step_key)
+
+    def get_progress(self, game):
+        """Phase X.4 — return (current, target, label) for the active step's
+        progress bar, or None if the step has no progress meter.
+
+        Currently we surface mining progress: how many IRON units the player
+        has collected toward a small target so they can see themselves
+        approaching the goal in real time."""
+        if not self.active or self.step_index >= len(self.steps):
+            return None
+        step = self.steps[self.step_index]
+        if step.key in ('approach', 'mine') and game.spaceship:
+            have = game.spaceship.inventory.get_item_count('IRON')
+            target = 5
+            return (min(have, target), target, 'IRON')
+        return None
+
+    def render(self, surface, game=None):
         if not self.active or self.step_index >= len(self.steps):
             return
         step = self.steps[self.step_index]
         msg = t(step.hint_key)
-        font = get_font(24)
-        text = render_outlined(font, msg, (255, 255, 255), (0, 0, 0), 2)
-        w = text.get_width() + 40
-        h = text.get_height() + 30
-        x = (display.WIDTH - w) // 2
-        y = 60
-        rect = pygame.Rect(x, y, w, h)
-        draw_panel(surface, rect, bg=(20, 30, 60), border=(0, 255, 255), bg_alpha=200, border_width=2, radius=8)
-        surface.blit(text, (x + 20, y + 15))
+        font_hint = get_font(22)
+        font_title = get_font(16)
+        font_reward = get_font(16)
+
+        # Compose three optional lines: goal header, hint, reward.
+        goal_surf = render_outlined(font_title, t('tutorial.goal').upper(),
+                                    (255, 220, 80), (0, 0, 0), 1)
+        hint_surf = render_outlined(font_hint, msg, (255, 255, 255), (0, 0, 0), 2)
+        reward_key = self._reward_key_for_step(step.key)
+        reward_surf = render_outlined(font_reward, t(reward_key),
+                                      (160, 230, 160), (0, 0, 0), 1) if reward_key else None
+
+        lines = [goal_surf, hint_surf]
+        if reward_surf is not None:
+            lines.append(reward_surf)
+
+        # Progress bar geometry (computed before panel so we can size it).
+        progress = self.get_progress(game) if game is not None else None
+
+        line_h = max(s.get_height() for s in lines) + 4
+        max_w = max(s.get_width() for s in lines)
+        panel_w = max_w + 40
+        panel_h = line_h * len(lines) + 18
+        if progress is not None:
+            panel_h += 16  # extra height for progress bar
+        x = (display.WIDTH - panel_w) // 2
+        y = 32
+        rect = pygame.Rect(x, y, panel_w, panel_h)
+        draw_panel(surface, rect, bg=(20, 30, 60), border=(0, 255, 255),
+                   bg_alpha=210, border_width=2, radius=8)
+
+        cy = y + 8
+        for s in lines:
+            surface.blit(s, (x + (panel_w - s.get_width()) // 2, cy))
+            cy += line_h
+
+        # Progress bar (Phase X.4.3) — visible IRON count toward small target.
+        if progress is not None:
+            current, target, label = progress
+            bar_w = panel_w - 60
+            bar_x = x + 30
+            bar_y = cy + 2
+            pygame.draw.rect(surface, (40, 50, 70),
+                             (bar_x, bar_y, bar_w, 8), border_radius=3)
+            fill_w = int(bar_w * (current / max(target, 1)))
+            if fill_w > 0:
+                pygame.draw.rect(surface, (255, 220, 80),
+                                 (bar_x, bar_y, fill_w, 8), border_radius=3)
+            count_surf = render_outlined(font_reward, f"{current}/{target} {label}",
+                                         (240, 240, 240), (0, 0, 0), 1)
+            surface.blit(count_surf, (x + (panel_w - count_surf.get_width()) // 2, bar_y - 2))
 
         # Skip hint
-        skip = render_outlined(get_font(16), t('tutorial.skip'), (200, 200, 200), (0, 0, 0), 1)
-        surface.blit(skip, (x + 20, y + h + 6))
+        skip = render_outlined(get_font(14), t('tutorial.skip'), (200, 200, 200), (0, 0, 0), 1)
+        surface.blit(skip, (x + 20, y + panel_h + 4))

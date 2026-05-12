@@ -16,6 +16,9 @@ class Renderer:
     def __init__(self):
         # Backwards-compat: provide a particle_system attribute (unused by Game)
         self.particle_system = _LegacyParticleSystem()
+        # Frame counter so the engine glow is added every Nth frame instead
+        # of every frame — prevents overlapping lights from saturating to white.
+        self._engine_light_tick = 0
 
     def render_stars(self, surface, camera_x=0, camera_y=0):
         """Background = parallax stars + nebulas + distant planets."""
@@ -41,10 +44,17 @@ class Renderer:
         # Hit flash overlay
         if spaceship.hit_flash > 0:
             self._render_hit_flash(surface, spaceship, screen_x, screen_y)
-        # Engine light
-        lighting.add_transient(spaceship.x - math.cos(spaceship.angle) * spaceship.size,
-                               spaceship.y - math.sin(spaceship.angle) * spaceship.size,
-                               radius=48, color=(120, 180, 255), intensity=1.0, lifetime=4)
+        # Engine light — only re-emit every 4 frames so transient lights
+        # don't stack and saturate to white. Intensity is dimmer for ambient
+        # cruise and boosted when actively thrusting.
+        self._engine_light_tick = (self._engine_light_tick + 1) % 4
+        if self._engine_light_tick == 0:
+            ex = spaceship.x - math.cos(spaceship.angle) * spaceship.size
+            ey = spaceship.y - math.sin(spaceship.angle) * spaceship.size
+            base_intensity = 0.55 if spaceship.boosting else 0.30
+            lighting.add_transient(ex, ey,
+                                   radius=40, color=(120, 180, 255),
+                                   intensity=base_intensity, lifetime=14)
 
     def _render_boost_trail(self, surface, spaceship, cx, cy):
         # Extended cone behind ship
