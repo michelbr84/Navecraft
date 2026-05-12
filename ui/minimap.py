@@ -30,6 +30,28 @@ class Minimap:
         cx = mx + ms // 2
         cy = my + ms // 2
 
+        # Resource blocks (small dots, color-keyed) — only those near the ship.
+        # Sub-sampled so we don't burn frames at large block counts.
+        blocks = getattr(game, 'blocks', [])
+        block_colors = {
+            'IRON': (180, 180, 200), 'GOLD': (255, 215, 0),
+            'CRYSTAL': (200, 80, 240), 'FUEL': (255, 140, 60),
+            'OXYGEN': (120, 220, 255),
+        }
+        max_d = (ms / 2 - 4) / self.scale
+        # Step by ~6 blocks to avoid clutter and per-frame overhead.
+        for b in blocks[::6]:
+            if getattr(b, 'collected', False):
+                continue
+            dx = b.x - ship.x
+            dy = b.y - ship.y
+            if abs(dx) > max_d or abs(dy) > max_d:
+                continue
+            ox = dx * self.scale
+            oy = dy * self.scale
+            col = block_colors.get(getattr(b, 'block_type', None), (140, 160, 180))
+            surface.set_at((int(cx + ox), int(cy + oy)), col)
+
         # Planets
         for p in getattr(game, 'planets', []):
             ox = (p.x - ship.x) * self.scale
